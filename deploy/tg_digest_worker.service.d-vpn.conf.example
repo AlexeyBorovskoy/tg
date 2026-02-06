@@ -1,0 +1,17 @@
+# Опционально: прокси только для воркера (доступ к ChatGPT API через VPN/прокси).
+# Используйте только на той VM, где нужен прокси (например Yandex). На других серверах не копируйте.
+#
+# На сервере:
+#   sudo mkdir -p /etc/systemd/system/tg_digest_worker.service.d
+#   sudo cp deploy/tg_digest_worker.service.d-vpn.conf.example /etc/systemd/system/tg_digest_worker.service.d/vpn.conf
+#   sudo nano /etc/systemd/system/tg_digest_worker.service.d/vpn.conf   # подставьте свой адрес прокси
+#   sudo systemctl daemon-reload && sudo systemctl restart tg_digest_worker
+#
+# Для SOCKS5 (подставьте хост:порт вашего локального прокси):
+[Service]
+Environment=HTTPS_PROXY=socks5://127.0.0.1:1080
+Environment=HTTP_PROXY=socks5://127.0.0.1:1080
+
+# Альтернатива — HTTP-прокси (замените строки выше):
+# Environment=HTTPS_PROXY=http://127.0.0.1:8080
+# Environment=HTTP_PROXY=http://127.0.0.1:8080

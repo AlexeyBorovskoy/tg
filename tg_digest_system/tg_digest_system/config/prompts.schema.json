@@ -1,0 +1,185 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ripas.ru/tg-digest/prompts.schema.json",
+  "title": "TG Digest Prompts Configuration",
+  "description": "Схема конфигурации промптов для ChatGPT API в системе TG Digest",
+  "type": "object",
+  "required": ["version", "prompts"],
+  
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Ссылка на JSON Schema"
+    },
+    
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Версия формата конфигурации (например, '1.0')"
+    },
+    
+    "prompts": {
+      "type": "array",
+      "description": "Список промптов для генерации дайджестов и документов",
+      "items": {
+        "$ref": "#/definitions/Prompt"
+      },
+      "minItems": 1
+    },
+    
+    "defaults": {
+      "$ref": "#/definitions/PromptDefaults",
+      "description": "Настройки по умолчанию для всех промптов"
+    }
+  },
+  
+  "definitions": {
+    "Prompt": {
+      "type": "object",
+      "required": ["id", "name", "type", "system_prompt"],
+      "additionalProperties": false,
+      
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Уникальный идентификатор промпта (snake_case)",
+          "examples": ["digest_management", "consolidated_engineering"]
+        },
+        
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 100,
+          "description": "Человекочитаемое название промпта",
+          "examples": ["Управленческий дайджест", "Сводный инженерный документ"]
+        },
+        
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Описание назначения и особенностей промпта"
+        },
+        
+        "type": {
+          "type": "string",
+          "enum": ["digest", "consolidated_doc", "summary", "analysis", "custom"],
+          "description": "Тип промпта, определяющий его применение"
+        },
+        
+        "model": {
+          "type": "string",
+          "description": "Модель LLM для этого промпта (переопределяет defaults)",
+          "examples": ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
+        },
+        
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 16000,
+          "description": "Максимальное количество токенов в ответе"
+        },
+        
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Температура генерации (0 = детерминированный, 2 = креативный)"
+        },
+        
+        "system_prompt": {
+          "type": "string",
+          "minLength": 50,
+          "description": "System prompt — роль и инструкции для модели"
+        },
+        
+        "user_template": {
+          "type": "string",
+          "description": "Шаблон user prompt с плейсхолдерами: {channel_name}, {period}, {messages}, {ocr_texts}"
+        },
+        
+        "output_format": {
+          "type": "string",
+          "enum": ["markdown", "json", "text", "html"],
+          "default": "markdown",
+          "description": "Ожидаемый формат вывода"
+        },
+        
+        "output_structure": {
+          "type": "object",
+          "description": "Структура вывода для типа json (JSON Schema)",
+          "additionalProperties": true
+        },
+        
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]*$"
+          },
+          "description": "Теги для категоризации и поиска промптов",
+          "examples": [["management", "report"], ["engineering", "technical"]]
+        },
+        
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Включён ли промпт"
+        },
+        
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$",
+          "description": "Версия промпта для отслеживания изменений"
+        },
+        
+        "author": {
+          "type": "string",
+          "description": "Автор промпта"
+        },
+        
+        "updated_at": {
+          "type": "string",
+          "format": "date",
+          "description": "Дата последнего обновления"
+        }
+      }
+    },
+    
+    "PromptDefaults": {
+      "type": "object",
+      "description": "Значения по умолчанию для всех промптов",
+      
+      "properties": {
+        "model": {
+          "type": "string",
+          "default": "gpt-4o",
+          "description": "Модель LLM по умолчанию"
+        },
+        
+        "max_tokens": {
+          "type": "integer",
+          "default": 2000,
+          "minimum": 100,
+          "maximum": 16000,
+          "description": "Максимальное количество токенов по умолчанию"
+        },
+        
+        "temperature": {
+          "type": "number",
+          "default": 0.1,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Температура по умолчанию"
+        },
+        
+        "output_format": {
+          "type": "string",
+          "enum": ["markdown", "json", "text", "html"],
+          "default": "markdown",
+          "description": "Формат вывода по умолчанию"
+        }
+      }
+    }
+  }
+}

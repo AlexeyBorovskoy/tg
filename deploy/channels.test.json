@@ -1,0 +1,41 @@
+{
+  "$schema": "./channels.schema.json",
+  "_comment": "Конфигурация для тестирования: один чат АСУДД Основной (peer_id -1002700886173)",
+  
+  "channels": [
+    {
+      "id": -1002700886173,
+      "name": "АСУДД Основной",
+      "description": "Основной канал команды АСУДД — тестирование на сервере Нила",
+      "enabled": true,
+      "peer_type": "channel",
+      "prompt_file": "prompts/digest_management.md",
+      "poll_interval_minutes": 30,
+      "consolidated_doc_path": "docs/reference/asudd_engineering.md",
+      "consolidated_doc_prompt_file": "prompts/consolidated_engineering.md",
+      "recipients": [
+        {
+          "telegram_id": 0,
+          "name": "Получатель (заполнить ID)",
+          "role": "lead",
+          "send_file": true,
+          "send_text": true,
+          "_comment": "telegram_id: получить у @userinfobot в Telegram"
+        }
+      ]
+    }
+  ],
+  
+  "defaults": {
+    "poll_interval_minutes": 30,
+    "llm_provider": "openai",
+    "llm_model": "gpt-4o-mini",
+    "llm_max_tokens": 2000,
+    "llm_temperature": 0.1,
+    "ocr_enabled": true,
+    "ocr_languages": ["rus", "eng"],
+    "media_save_to_db": true,
+    "digest_format": "markdown",
+    "timezone": "Europe/Moscow"
+  }
+}

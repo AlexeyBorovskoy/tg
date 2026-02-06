@@ -1,0 +1,36 @@
+{
+  "channels": [
+    {
+      "id": -1002700886173,
+      "name": "АСУДД Основной",
+      "description": "Основной канал команды",
+      "enabled": true,
+      "peer_type": "channel",
+      "prompt_file": "prompts/digest_management.md",
+      "poll_interval_minutes": 60,
+      "consolidated_doc_path": "docs/reference/asudd_engineering.md",
+      "consolidated_doc_prompt_file": "prompts/consolidated_engineering.md",
+      "recipients": [
+        {
+          "telegram_id": 8572555788,
+          "name": "RIPAS_DialogKeeperBot",
+          "role": "bot",
+          "send_file": true,
+          "send_text": true
+        },
+        {
+          "telegram_id": 499412926,
+          "name": "Alexey Borovskoy (@Alexey_Borovskoy)",
+          "role": "lead",
+          "send_file": true,
+          "send_text": true
+        }
+      ]
+    }
+  ],
+  "defaults": {
+    "poll_interval_minutes": 60,
+    "llm_model": "gpt-4o",
+    "ocr_enabled": true
+  }
+}

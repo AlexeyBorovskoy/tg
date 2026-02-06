@@ -1,0 +1,81 @@
+# ============================================
+# Secrets / local env
+# ============================================
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.session
+
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.venv_media/
+venv/
+*.egg-info/
+
+# ============================================
+# Logs and runtime
+# ============================================
+*.log
+logs/
+data/
+state/
+media/
+
+# ============================================
+# Local backups / temp
+# ============================================
+*.bak
+*.bak.*
+*~
+.DS_Store
+Thumbs.db
+
+# ============================================
+# IDE
+# ============================================
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ============================================
+# tmux local config
+# ============================================
+.tmux.conf
+
+# ============================================
+# Media downloaded content (do not commit binaries)
+# ============================================
+docs/media/*/*
+docs/media/*/*/*
+!docs/media/.gitkeep
+!docs/media/_tmp/.gitkeep
+tg_digest_system/media/
+tg_digest_system/*/media/
+
+# ============================================
+# tg_digest_system specific
+# ============================================
+tg_digest_system/=*
+tg_digest_system/data/
+tg_digest_system/logs/
+tg_digest_system/.venv/
+tg_digest_system/*/.venv/
+tg_digest_system/tg_digest_system/data/
+tg_digest_system/tg_digest_system/logs/
+
+# ============================================
+# Deploy secrets
+# ============================================
+deploy/vpn/*.ovpn
+deploy/vpn/*.conf
+!deploy/vpn.conf
+!deploy/*.example
+

@@ -1,0 +1,7 @@
+title = "Project Gitleaks Config"
+
+# пример: позволить фиктивные ключи в tests/
+[[rules]]
+description = "Allow dummy keys in tests"
+regex = '''(TEST|DUMMY)_KEY\s*=\s*["'][A-Za-z0-9_\-]{6,}["']'''
+allowlist = { paths = ["tests/"] }

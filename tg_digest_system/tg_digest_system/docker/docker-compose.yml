@@ -1,0 +1,159 @@
+# ==============================================================================
+# TG Digest System - Docker Compose
+# ==============================================================================
+# Запуск: docker-compose up -d
+# Логи:   docker-compose logs -f worker
+# Стоп:   docker-compose down
+# ==============================================================================
+
+version: "3.8"
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: tg_digest_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-tg_digest}
+      POSTGRES_USER: ${PGUSER:-tg_digest}
+      POSTGRES_PASSWORD: ${PGPASSWORD:?Установите PGPASSWORD в .env}
+    volumes:
+      # Данные БД
+      - postgres_data:/var/lib/postgresql/data
+      # Инициализация схемы
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-tg_digest} -d ${PGDATABASE:-tg_digest}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tg_digest_net
+
+  # ---------------------------------------------------------------------------
+  # Digest Worker (основной сервис)
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: tg_digest_worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Telegram
+      TG_API_ID: ${TG_API_ID:?Установите TG_API_ID в .env}
+      TG_API_HASH: ${TG_API_HASH:?Установите TG_API_HASH в .env}
+      TG_BOT_TOKEN: ${TG_BOT_TOKEN:?Установите TG_BOT_TOKEN в .env}
+      TG_SESSION_FILE: /app/data/telethon.session
+      # PostgreSQL
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${PGDATABASE:-tg_digest}
+      PGUSER: ${PGUSER:-tg_digest}
+      PGPASSWORD: ${PGPASSWORD}
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Установите OPENAI_API_KEY в .env}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-2000}
+      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-0.1}
+      # Пути
+      CONFIG_FILE: /app/config/channels.json
+      PROMPTS_DIR: /app/prompts
+      LOGS_DIR: /app/logs
+      MEDIA_DIR: /app/media
+      # Настройки
+      TZ: ${TZ:-Europe/Moscow}
+      DEBUG: ${DEBUG:-0}
+      # GitLab (gitlab.ripas.ru): пуш дайджестов и сводных документов
+      GITLAB_ENABLED: ${GITLAB_ENABLED:-0}
+      GITLAB_REPO_URL: ${GITLAB_REPO_URL:-}
+      GITLAB_BRANCH: ${GITLAB_BRANCH:-main}
+      GITLAB_SSH_KEY: ${GITLAB_SSH_KEY:-}
+      # Для GitLab push: repo_dir должен указывать на монтированный репо (с .git)
+      REPO_DIR: ${REPO_DIR:-/app/repo}
+    volumes:
+      # Конфигурация (можно менять без пересборки)
+      - ./config:/app/config:ro
+      - ./prompts:/app/prompts:ro
+      # Репозиторий для GitLab push: дайджесты и сводные доки пишутся в docs/, затем git push
+      # При деплое: клонируйте репо в /opt/tg_digest и запускайте из docker/; тогда .. = репо с .git
+      - ..:/app/repo:rw
+      # Данные (персистентные)
+      - worker_data:/app/data
+      - worker_logs:/app/logs
+      - worker_media:/app/media
+    # По умолчанию запуск каждые 30 минут
+    command: ["--interval", "30"]
+    networks:
+      - tg_digest_net
+
+  # ---------------------------------------------------------------------------
+  # Телетон авторизация (одноразовый запуск)
+  # ---------------------------------------------------------------------------
+  # Используйте для первичной авторизации:
+  # docker-compose run --rm auth
+  # ---------------------------------------------------------------------------
+  auth:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: tg_digest_auth
+    profiles:
+      - tools
+    environment:
+      TG_API_ID: ${TG_API_ID}
+      TG_API_HASH: ${TG_API_HASH}
+      TG_SESSION_FILE: /app/data/telethon.session
+    volumes:
+      - worker_data:/app/data
+    entrypoint: python
+    command: ["-c", "
+import asyncio
+from telethon import TelegramClient
+import os
+
+async def auth():
+    client = TelegramClient(
+        os.environ['TG_SESSION_FILE'],
+        int(os.environ['TG_API_ID']),
+        os.environ['TG_API_HASH']
+    )
+    await client.start()
+    me = await client.get_me()
+    print(f'Авторизован как: {me.first_name} (ID: {me.id})')
+    await client.disconnect()
+
+asyncio.run(auth())
+"]
+    stdin_open: true
+    tty: true
+    networks:
+      - tg_digest_net
+
+# -----------------------------------------------------------------------------
+# Volumes
+# -----------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    name: tg_digest_postgres_data
+  worker_data:
+    name: tg_digest_worker_data
+  worker_logs:
+    name: tg_digest_worker_logs
+  worker_media:
+    name: tg_digest_worker_media
+
+# -----------------------------------------------------------------------------
+# Networks
+# -----------------------------------------------------------------------------
+networks:
+  tg_digest_net:
+    name: tg_digest_network

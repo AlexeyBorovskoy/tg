@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Telegram Digest Channels Configuration",
+  "description": "Схема конфигурации каналов для системы мониторинга АСУДД",
+  "type": "object",
+  "required": ["channels", "defaults"],
+  
+  "properties": {
+    "channels": {
+      "type": "array",
+      "description": "Список Telegram каналов для мониторинга",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "prompt_file", "recipients"],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Telegram ID канала (отрицательное число для каналов/групп)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Человекочитаемое название канала"
+          },
+          "description": {
+            "type": "string",
+            "description": "Описание назначения канала"
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Включен ли мониторинг канала"
+          },
+          "peer_type": {
+            "type": "string",
+            "enum": ["channel", "chat", "group"],
+            "default": "channel"
+          },
+          "prompt_file": {
+            "type": "string",
+            "description": "Путь к файлу промпта относительно корня проекта"
+          },
+          "poll_interval_minutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 1440,
+            "description": "Интервал опроса в минутах"
+          },
+          "recipients": {
+            "type": "array",
+            "description": "Список получателей дайджеста",
+            "items": {
+              "type": "object",
+              "required": ["telegram_id", "name"],
+              "properties": {
+                "telegram_id": {
+                  "type": "integer",
+                  "description": "Telegram ID пользователя"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Имя получателя"
+                },
+                "role": {
+                  "type": "string",
+                  "description": "Роль получателя (для информации)"
+                },
+                "send_file": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Отправлять ли файл .md"
+                },
+                "send_text": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Отправлять ли текст сообщением"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    
+    "defaults": {
+      "type": "object",
+      "description": "Настройки по умолчанию",
+      "properties": {
+        "poll_interval_minutes": { "type": "integer" },
+        "llm_provider": { "type": "string", "enum": ["openai", "gigachat"] },
+        "llm_model": { "type": "string" },
+        "llm_max_tokens": { "type": "integer" },
+        "llm_temperature": { "type": "number" },
+        "ocr_enabled": { "type": "boolean" },
+        "ocr_languages": { "type": "array", "items": { "type": "string" } },
+        "media_save_to_db": { "type": "boolean" },
+        "digest_format": { "type": "string" },
+        "timezone": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,388 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ripas.ru/tg-digest/channels.v2.schema.json",
+  "title": "TG Digest Channels Configuration v2",
+  "description": "Схема конфигурации Telegram каналов и получателей для системы TG Digest (версия 2.0)",
+  "type": "object",
+  "required": ["version", "channels"],
+  
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Ссылка на JSON Schema"
+    },
+    
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Версия формата конфигурации",
+      "examples": ["2.0"]
+    },
+    
+    "channels": {
+      "type": "array",
+      "description": "Список Telegram каналов для мониторинга",
+      "items": {
+        "$ref": "#/definitions/Channel"
+      },
+      "minItems": 1
+    },
+    
+    "recipient_groups": {
+      "type": "object",
+      "description": "Именованные группы получателей для переиспользования",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/Recipient"
+        }
+      },
+      "examples": [{
+        "management": [{"telegram_id": 123, "name": "Директор", "role": "director"}],
+        "engineers": [{"telegram_id": 456, "name": "Инженер", "role": "engineer"}]
+      }]
+    },
+    
+    "defaults": {
+      "$ref": "#/definitions/Defaults",
+      "description": "Настройки по умолчанию для всех каналов"
+    }
+  },
+  
+  "definitions": {
+    "Channel": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Telegram ID канала/группы/чата (отрицательное число для каналов и групп)",
+          "examples": [-1002700886173]
+        },
+        
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100,
+          "description": "Человекочитаемое название канала",
+          "examples": ["АСУДД Основной"]
+        },
+        
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Описание назначения канала"
+        },
+        
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Включён ли мониторинг канала"
+        },
+        
+        "peer_type": {
+          "type": "string",
+          "enum": ["channel", "chat", "group", "supergroup"],
+          "default": "channel",
+          "description": "Тип Telegram-сущности"
+        },
+        
+        "processing": {
+          "$ref": "#/definitions/ProcessingSettings",
+          "description": "Настройки обработки канала"
+        },
+        
+        "prompts": {
+          "$ref": "#/definitions/PromptSettings",
+          "description": "Привязка промптов к каналу"
+        },
+        
+        "output": {
+          "$ref": "#/definitions/OutputSettings",
+          "description": "Настройки вывода (документы, GitLab)"
+        },
+        
+        "recipients": {
+          "type": "array",
+          "description": "Список получателей дайджеста (inline)",
+          "items": {
+            "$ref": "#/definitions/Recipient"
+          }
+        },
+        
+        "recipients_group": {
+          "type": "string",
+          "description": "Ссылка на группу получателей из recipient_groups",
+          "examples": ["management", "engineers"]
+        },
+        
+        "tags": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Теги для фильтрации и категоризации"
+        }
+      },
+      
+      "oneOf": [
+        {"required": ["recipients"]},
+        {"required": ["recipients_group"]}
+      ]
+    },
+    
+    "ProcessingSettings": {
+      "type": "object",
+      "description": "Настройки обработки сообщений",
+      "additionalProperties": false,
+      
+      "properties": {
+        "poll_interval_minutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 1440,
+          "default": 30,
+          "description": "Интервал опроса канала в минутах"
+        },
+        
+        "media_enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Загружать ли медиафайлы"
+        },
+        
+        "ocr_enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Выполнять ли OCR для изображений"
+        },
+        
+        "digest_enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Генерировать ли дайджесты"
+        },
+        
+        "max_messages_per_digest": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1000,
+          "default": 200,
+          "description": "Максимум сообщений в одном дайджесте"
+        },
+        
+        "skip_forwarded": {
+          "type": "boolean",
+          "default": false,
+          "description": "Пропускать пересланные сообщения"
+        },
+        
+        "skip_service_messages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Пропускать служебные сообщения (вход/выход участников)"
+        }
+      }
+    },
+    
+    "PromptSettings": {
+      "type": "object",
+      "description": "Привязка промптов из prompts.json",
+      "additionalProperties": false,
+      
+      "properties": {
+        "digest": {
+          "type": "string",
+          "description": "ID промпта для дайджеста",
+          "examples": ["digest_management", "digest_controllers"]
+        },
+        
+        "consolidated_doc": {
+          "type": "string",
+          "description": "ID промпта для сводного документа",
+          "examples": ["consolidated_engineering"]
+        },
+        
+        "summary": {
+          "type": "string",
+          "description": "ID промпта для краткого резюме (опционально)"
+        }
+      }
+    },
+    
+    "OutputSettings": {
+      "type": "object",
+      "description": "Настройки вывода документов",
+      "additionalProperties": false,
+      
+      "properties": {
+        "consolidated_doc_path": {
+          "type": "string",
+          "description": "Путь к сводному документу относительно repo_dir",
+          "examples": ["docs/reference/asudd_engineering.md"]
+        },
+        
+        "digest_archive_path": {
+          "type": "string",
+          "description": "Путь к архиву дайджестов (опционально)",
+          "examples": ["docs/digests/{channel_id}/"]
+        },
+        
+        "gitlab_push": {
+          "type": "boolean",
+          "default": false,
+          "description": "Автоматически пушить в GitLab"
+        },
+        
+        "gitlab_branch": {
+          "type": "string",
+          "description": "Ветка GitLab (переопределяет глобальную)",
+          "examples": ["feature/asudd-docs"]
+        }
+      }
+    },
+    
+    "Recipient": {
+      "type": "object",
+      "required": ["telegram_id", "name"],
+      "additionalProperties": false,
+      
+      "properties": {
+        "telegram_id": {
+          "type": "integer",
+          "description": "Telegram ID пользователя или бота",
+          "examples": [499412926, 8572555788]
+        },
+        
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100,
+          "description": "Имя получателя (для отображения)",
+          "examples": ["Alexey Borovskoy", "RIPAS_DialogKeeperBot"]
+        },
+        
+        "role": {
+          "type": "string",
+          "enum": ["lead", "manager", "engineer", "analyst", "bot", "archive", "other"],
+          "description": "Роль получателя"
+        },
+        
+        "delivery": {
+          "$ref": "#/definitions/DeliverySettings",
+          "description": "Настройки доставки"
+        },
+        
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Активен ли получатель"
+        },
+        
+        "comment": {
+          "type": "string",
+          "description": "Комментарий (для документирования)"
+        }
+      }
+    },
+    
+    "DeliverySettings": {
+      "type": "object",
+      "description": "Настройки доставки дайджеста",
+      "additionalProperties": false,
+      
+      "properties": {
+        "send_file": {
+          "type": "boolean",
+          "default": true,
+          "description": "Отправлять дайджест как .md файл"
+        },
+        
+        "send_text": {
+          "type": "boolean",
+          "default": true,
+          "description": "Отправлять дайджест как текст сообщения"
+        },
+        
+        "send_summary": {
+          "type": "boolean",
+          "default": false,
+          "description": "Отправлять только краткое резюме"
+        },
+        
+        "send_consolidated_doc": {
+          "type": "boolean",
+          "default": false,
+          "description": "Отправлять обновлённый сводный документ"
+        },
+        
+        "notify_on_error": {
+          "type": "boolean",
+          "default": false,
+          "description": "Уведомлять об ошибках обработки"
+        }
+      }
+    },
+    
+    "Defaults": {
+      "type": "object",
+      "description": "Значения по умолчанию для всех каналов",
+      "additionalProperties": false,
+      
+      "properties": {
+        "poll_interval_minutes": {
+          "type": "integer",
+          "default": 30
+        },
+        
+        "llm_provider": {
+          "type": "string",
+          "enum": ["openai", "gigachat", "anthropic", "local"],
+          "default": "openai"
+        },
+        
+        "llm_model": {
+          "type": "string",
+          "default": "gpt-4o"
+        },
+        
+        "llm_max_tokens": {
+          "type": "integer",
+          "default": 2000
+        },
+        
+        "llm_temperature": {
+          "type": "number",
+          "default": 0.1
+        },
+        
+        "ocr_enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        
+        "ocr_languages": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": ["rus", "eng"]
+        },
+        
+        "media_save_to_db": {
+          "type": "boolean",
+          "default": true
+        },
+        
+        "digest_format": {
+          "type": "string",
+          "enum": ["markdown", "html", "text"],
+          "default": "markdown"
+        },
+        
+        "timezone": {
+          "type": "string",
+          "default": "Europe/Moscow"
+        }
+      }
+    }
+  }
+}

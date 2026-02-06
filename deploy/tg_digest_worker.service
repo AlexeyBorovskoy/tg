@@ -1,0 +1,15 @@
+[Unit]
+Description=TG Digest Worker (опрос чата, дайджесты, сводный документ)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ripas
+WorkingDirectory=/home/ripas/tg_digest_deploy
+EnvironmentFile=/home/ripas/tg_digest_deploy/.env
+ExecStart=/home/ripas/tg_digest_deploy/deploy/run_worker.sh
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

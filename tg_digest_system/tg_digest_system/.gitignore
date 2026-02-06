@@ -1,0 +1,56 @@
+# ==============================================================================
+# TG Digest System - .gitignore
+# ==============================================================================
+
+# Секреты и конфигурация
+.env
+.env.*
+!.env.example
+
+# Telethon сессии
+*.session
+*.session-journal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+ENV/
+env/
+.eggs/
+*.egg-info/
+*.egg
+
+# Логи
+logs/
+*.log
+
+# Медиафайлы
+media/
+
+# Данные
+data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (если локальные)
+postgres_data/
+
+# Временные файлы
+tmp/
+temp/
+*.tmp
+*.bak
