@@ -74,20 +74,36 @@ class Database:
         sender_name: Optional[str],
         text: Optional[str],
         raw_json: Optional[dict] = None,
+        user_id: Optional[int] = None,
     ) -> None:
         """Сохраняет или обновляет сообщение"""
         with self.cursor() as cur:
+            # Если user_id не передан, пытаемся получить из БД по peer_id (для обратной совместимости)
+            if user_id is None:
+                cur.execute("""
+                    SELECT DISTINCT user_id FROM tg.messages 
+                    WHERE peer_type = %s AND peer_id = %s AND user_id IS NOT NULL
+                    LIMIT 1
+                """, (peer_type, peer_id))
+                row = cur.fetchone()
+                if row:
+                    user_id = row[0]
+                else:
+                    # Если не найдено, используем user_id=1 (основной пользователь)
+                    user_id = 1
+            
             cur.execute("""
-                INSERT INTO tg.messages (peer_type, peer_id, msg_id, dt, sender_id, sender_name, text, raw_json)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO tg.messages (peer_type, peer_id, msg_id, dt, sender_id, sender_name, text, raw_json, user_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (peer_type, peer_id, msg_id)
                 DO UPDATE SET
                     dt = EXCLUDED.dt,
                     sender_id = EXCLUDED.sender_id,
                     sender_name = EXCLUDED.sender_name,
                     text = EXCLUDED.text,
-                    raw_json = EXCLUDED.raw_json
-            """, (peer_type, peer_id, msg_id, dt, sender_id, sender_name, text, Json(raw_json) if raw_json else None))
+                    raw_json = EXCLUDED.raw_json,
+                    user_id = COALESCE(EXCLUDED.user_id, tg.messages.user_id)
+            """, (peer_type, peer_id, msg_id, dt, sender_id, sender_name, text, Json(raw_json) if raw_json else None, user_id))
     
     def get_messages_range(
         self,
@@ -95,16 +111,26 @@ class Database:
         peer_id: int,
         msg_id_from: int,
         msg_id_to: int,
+        user_id: Optional[int] = None,
     ) -> list[dict]:
         """Получает сообщения в диапазоне msg_id"""
         with self.cursor(dict_cursor=True) as cur:
-            cur.execute("""
-                SELECT msg_id, dt, sender_name, text
-                FROM tg.messages
-                WHERE peer_type = %s AND peer_id = %s
-                  AND msg_id > %s AND msg_id <= %s
-                ORDER BY dt ASC, msg_id ASC
-            """, (peer_type, peer_id, msg_id_from, msg_id_to))
+            if user_id:
+                cur.execute("""
+                    SELECT msg_id, dt, sender_name, text
+                    FROM tg.messages
+                    WHERE peer_type = %s AND peer_id = %s AND user_id = %s
+                      AND msg_id > %s AND msg_id <= %s
+                    ORDER BY dt ASC, msg_id ASC
+                """, (peer_type, peer_id, user_id, msg_id_from, msg_id_to))
+            else:
+                cur.execute("""
+                    SELECT msg_id, dt, sender_name, text
+                    FROM tg.messages
+                    WHERE peer_type = %s AND peer_id = %s
+                      AND msg_id > %s AND msg_id <= %s
+                    ORDER BY dt ASC, msg_id ASC
+                """, (peer_type, peer_id, msg_id_from, msg_id_to))
             return cur.fetchall()
     
     def get_max_msg_id(self, peer_type: str, peer_id: int) -> int:
@@ -346,20 +372,34 @@ class Database:
     # Состояние отчётов
     # =========================================================================
     
-    def get_last_msg_id(self, peer_type: str, peer_id: int) -> int:
+    def get_last_msg_id(self, peer_type: str, peer_id: int, user_id: Optional[int] = None) -> int:
         """Получает последний обработанный msg_id"""
         with self.cursor() as cur:
-            cur.execute("""
-                SELECT last_msg_id FROM rpt.report_state
-                WHERE peer_type = %s AND peer_id = %s
-            """, (peer_type, peer_id))
+            if user_id:
+                cur.execute("""
+                    SELECT last_msg_id FROM rpt.report_state
+                    WHERE peer_type = %s AND peer_id = %s AND user_id = %s
+                """, (peer_type, peer_id, user_id))
+            else:
+                cur.execute("""
+                    SELECT last_msg_id FROM rpt.report_state
+                    WHERE peer_type = %s AND peer_id = %s
+                """, (peer_type, peer_id))
             result = cur.fetchone()
             return result[0] if result else 0
     
-    def update_last_msg_id(self, peer_type: str, peer_id: int, last_msg_id: int) -> None:
+    def update_last_msg_id(self, peer_type: str, peer_id: int, last_msg_id: int, user_id: Optional[int] = None) -> None:
         """Обновляет курсор обработки"""
         with self.cursor() as cur:
-            cur.execute("""
+            if user_id:
+                cur.execute("""
+                    INSERT INTO rpt.report_state (peer_type, peer_id, last_msg_id, user_id, updated_at)
+                    VALUES (%s, %s, %s, %s, now())
+                    ON CONFLICT (user_id, peer_type, peer_id)
+                    DO UPDATE SET last_msg_id = EXCLUDED.last_msg_id, updated_at = now()
+                """, (peer_type, peer_id, last_msg_id, user_id))
+            else:
+                cur.execute("""
                 INSERT INTO rpt.report_state (peer_type, peer_id, last_msg_id, last_poll_at)
                 VALUES (%s, %s, %s, now())
                 ON CONFLICT (peer_type, peer_id)
@@ -384,14 +424,25 @@ class Database:
         llm_model: Optional[str] = None,
         llm_tokens_in: Optional[int] = None,
         llm_tokens_out: Optional[int] = None,
+        user_id: Optional[int] = None,
     ) -> int:
         """Сохраняет дайджест, возвращает ID"""
         with self.cursor() as cur:
+            # Если user_id не передан, пытаемся получить из БД
+            if user_id is None:
+                cur.execute("""
+                    SELECT DISTINCT user_id FROM tg.messages 
+                    WHERE peer_type = %s AND peer_id = %s AND user_id IS NOT NULL
+                    LIMIT 1
+                """, (peer_type, peer_id))
+                row = cur.fetchone()
+                user_id = row[0] if row else 1
+            
             cur.execute("""
-                INSERT INTO rpt.digests (peer_type, peer_id, msg_id_from, msg_id_to, digest_raw, digest_llm, llm_model, llm_tokens_in, llm_tokens_out)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO rpt.digests (peer_type, peer_id, msg_id_from, msg_id_to, digest_raw, digest_llm, llm_model, llm_tokens_in, llm_tokens_out, user_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (peer_type, peer_id, msg_id_from, msg_id_to, digest_raw, digest_llm, llm_model, llm_tokens_in, llm_tokens_out))
+            """, (peer_type, peer_id, msg_id_from, msg_id_to, digest_raw, digest_llm, llm_model, llm_tokens_in, llm_tokens_out, user_id))
             return cur.fetchone()[0]
     
     def save_delivery(
@@ -402,13 +453,20 @@ class Database:
         status: str,
         error_message: Optional[str] = None,
         recipient_id: Optional[int] = None,
+        user_id: Optional[int] = None,
     ) -> None:
         """Сохраняет запись о доставке"""
         with self.cursor() as cur:
+            # Если user_id не передан, получаем из дайджеста
+            if user_id is None:
+                cur.execute("SELECT user_id FROM rpt.digests WHERE id = %s", (digest_id,))
+                row = cur.fetchone()
+                user_id = row[0] if row else 1
+            
             cur.execute("""
-                INSERT INTO rpt.deliveries (digest_id, recipient_id, telegram_id, delivery_type, status, error_message, sent_at)
-                VALUES (%s, %s, %s, %s, %s, %s, CASE WHEN %s = 'sent' THEN now() ELSE NULL END)
-            """, (digest_id, recipient_id, telegram_id, delivery_type, status, error_message, status))
+                INSERT INTO rpt.deliveries (digest_id, recipient_id, telegram_id, delivery_type, status, error_message, user_id, sent_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, CASE WHEN %s = 'sent' THEN now() ELSE NULL END)
+            """, (digest_id, recipient_id, telegram_id, delivery_type, status, error_message, user_id, status))
 
 
 # Глобальный экземпляр (опционально)

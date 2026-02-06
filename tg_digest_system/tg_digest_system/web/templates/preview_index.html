@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Digest — Добавление канала (Preview)</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            color: #212121;
+        }
+        
+        /* Header */
+        .header {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0 24px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .header-title {
+            font-size: 18px;
+            font-weight: 400;
+            color: #212121;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .header-title .material-icons {
+            font-size: 24px;
+            color: #424242;
+        }
+        
+        .header-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-header {
+            background: transparent;
+            border: 1px solid #e0e0e0;
+            color: #424242;
+            padding: 8px 16px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        
+        .btn-header:hover {
+            background: #f5f5f5;
+        }
+        
+        /* Main container */
+        .container {
+            max-width: 900px;
+            margin: 24px auto;
+            padding: 0 24px;
+        }
+        
+        .page-header {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        .page-header h1 {
+            font-size: 24px;
+            font-weight: 400;
+            color: #212121;
+            margin-bottom: 8px;
+        }
+        
+        .page-header p {
+            font-size: 14px;
+            color: #757575;
+        }
+        
+        /* Content card */
+        .content-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        .content-card h2 {
+            font-size: 18px;
+            font-weight: 500;
+            color: #212121;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        /* Form */
+        .form-group {
+            margin-bottom: 24px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #424242;
+            font-size: 14px;
+        }
+        
+        .label-hint {
+            font-weight: 400;
+            color: #757575;
+            font-size: 12px;
+            margin-top: 4px;
+            line-height: 1.4;
+        }
+        
+        input[type="number"],
+        input[type="text"] {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #212121;
+            background: #ffffff;
+            transition: border-color 0.2s;
+        }
+        
+        input[type="number"]:focus,
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #1976d2;
+        }
+        
+        input::placeholder {
+            color: #9e9e9e;
+        }
+        
+        .btn {
+            background: #1976d2;
+            color: #ffffff;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn:hover {
+            background: #1565c0;
+        }
+        
+        .btn:active {
+            background: #0d47a1;
+        }
+        
+        /* Alert */
+        .alert {
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            border-left: 4px solid;
+        }
+        
+        .alert-success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-left-color: #4caf50;
+        }
+        
+        .alert-error {
+            background: #ffebee;
+            color: #c62828;
+            border-left-color: #f44336;
+        }
+        
+        /* Info box */
+        .info-box {
+            background: #f5f5f5;
+            border-left: 4px solid #1976d2;
+            padding: 16px;
+            border-radius: 4px;
+            margin-bottom: 24px;
+        }
+        
+        .info-box h3 {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #212121;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .info-box ul {
+            margin-left: 20px;
+            color: #424242;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .info-box li {
+            margin-bottom: 4px;
+        }
+        
+        .info-box.warning {
+            background: #fff3e0;
+            border-left-color: #ff9800;
+        }
+        
+        .info-box.warning h3 {
+            color: #e65100;
+        }
+        
+        .info-box.warning p {
+            color: #e65100;
+            margin: 0;
+            font-size: 14px;
+        }
+        
+        /* Link */
+        .link-to-channels {
+            text-align: center;
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .link-to-channels a {
+            color: #1976d2;
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .link-to-channels a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-title">
+            <span class="material-icons">settings</span>
+            <span>TG Digest System</span>
+        </div>
+        <div class="header-actions">
+            <a href="preview_channels.html" class="btn-header">
+                <span class="material-icons" style="font-size: 18px;">list</span>
+                Мои каналы
+            </a>
+        </div>
+    </header>
+    
+    <!-- Main content -->
+    <div class="container">
+        <div class="page-header">
+            <h1>Добавление канала</h1>
+            <p>Добавьте новый Telegram канал или группу для мониторинга и генерации дайджестов</p>
+        </div>
+        
+        <div class="content-card">
+            <div class="alert alert-success">
+                ✓ Канал успешно добавлен. История будет загружена автоматически.
+            </div>
+            
+            <div class="info-box">
+                <h3>
+                    <span class="material-icons" style="font-size: 18px;">info</span>
+                    Как это работает
+                </h3>
+                <ul>
+                    <li>Система автоматически загрузит всю историю чата</li>
+                    <li>Обработает все изображения через OCR</li>
+                    <li>Создаст сводный инженерный документ</li>
+                    <li>Начнёт отправлять дайджесты в указанный чат или боту</li>
+                </ul>
+            </div>
+            
+            <div class="info-box warning">
+                <h3>
+                    <span class="material-icons" style="font-size: 18px;">lock</span>
+                    Доступ к чату
+                </h3>
+                <p>
+                    Система автоматически проверит доступ к чату. Для <strong>приватных групп</strong> может потребоваться добавить бота как администратора. 
+                    Инструкции будут показаны после добавления канала.
+                </p>
+            </div>
+            
+            <form id="addChannelForm">
+                <div class="form-group">
+                    <label>
+                        Ваш Telegram ID
+                        <span class="label-hint">(для идентификации в системе)</span>
+                    </label>
+                    <input 
+                        type="number" 
+                        id="userTelegramId" 
+                        name="user_telegram_id"
+                        placeholder="Например: 499412926"
+                        value="499412926"
+                    />
+                    <span class="label-hint">
+                        Узнать ID можно через @userinfobot или @RawDataBot
+                    </span>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        Telegram ID чата для мониторинга
+                        <span class="label-hint">(канал или группа, которую хотите контролировать)</span>
+                    </label>
+                    <input 
+                        type="number" 
+                        id="chatId" 
+                        name="telegram_chat_id"
+                        placeholder="Например: -1001234567890 или 5228538198"
+                        value="-1001234567890"
+                    />
+                    <span class="label-hint">
+                        Для каналов: отрицательное число (например -1001234567890)<br>
+                        Для групп: положительное число (например 5228538198)
+                    </span>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        Название чата
+                        <span class="label-hint">(опционально, определится автоматически)</span>
+                    </label>
+                    <input 
+                        type="text" 
+                        id="chatName" 
+                        name="name"
+                        placeholder="Оставьте пустым для автоматического определения"
+                    />
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        Куда отправлять дайджесты
+                        <span class="label-hint">(Telegram ID получателя или бота)</span>
+                    </label>
+                    <input 
+                        type="number" 
+                        id="recipientId" 
+                        name="recipient_telegram_id"
+                        placeholder="Например: 499412926 или ID вашего бота"
+                        value="499412926"
+                    />
+                    <span class="label-hint">
+                        Ваш личный Telegram ID или ID бота, который будет отправлять дайджесты
+                    </span>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        Имя получателя
+                        <span class="label-hint">(опционально)</span>
+                    </label>
+                    <input 
+                        type="text" 
+                        id="recipientName" 
+                        name="recipient_name"
+                        placeholder="Например: Иван Иванов"
+                        value="Иван Иванов"
+                    />
+                </div>
+                
+                <button type="button" class="btn" onclick="alert('Это preview версия. Форма не отправляет данные.')">
+                    <span class="material-icons" style="font-size: 18px;">add</span>
+                    Добавить канал
+                </button>
+            </form>
+            
+            <div class="link-to-channels">
+                <a href="preview_channels.html">
+                    <span class="material-icons" style="font-size: 18px;">list</span>
+                    Посмотреть мои каналы
+                </a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

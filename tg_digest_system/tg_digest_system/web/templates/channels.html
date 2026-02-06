@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Digest — Мои каналы</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            color: #212121;
+        }
+        
+        /* Header */
+        .header {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0 24px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .header-title {
+            font-size: 18px;
+            font-weight: 400;
+            color: #212121;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .header-title .material-icons {
+            font-size: 24px;
+            color: #424242;
+        }
+        
+        .header-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-header {
+            background: #1976d2;
+            border: none;
+            color: #ffffff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        
+        .btn-header:hover {
+            background: #1565c0;
+        }
+        
+        /* Main container */
+        .container {
+            max-width: 1200px;
+            margin: 24px auto;
+            padding: 0 24px;
+        }
+        
+        .page-header {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        .page-header h1 {
+            font-size: 24px;
+            font-weight: 400;
+            color: #212121;
+            margin-bottom: 8px;
+        }
+        
+        /* Content card */
+        .content-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        /* User input */
+        .user-input {
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 16px;
+            margin-bottom: 24px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+        
+        .user-input-group {
+            flex: 1;
+        }
+        
+        .user-input label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #424242;
+            font-size: 14px;
+        }
+        
+        .user-input input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #212121;
+            background: #ffffff;
+        }
+        
+        .user-input input:focus {
+            outline: none;
+            border-color: #1976d2;
+        }
+        
+        .btn-load {
+            background: #1976d2;
+            color: #ffffff;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.2s;
+        }
+        
+        .btn-load:hover {
+            background: #1565c0;
+        }
+        
+        /* Table */
+        .table-container {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        thead {
+            background: #f5f5f5;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 500;
+            font-size: 14px;
+            color: #424242;
+        }
+        
+        tbody tr {
+            border-bottom: 1px solid #e0e0e0;
+            transition: background 0.2s;
+        }
+        
+        tbody tr:hover {
+            background: #fafafa;
+        }
+        
+        td {
+            padding: 12px 16px;
+            font-size: 14px;
+            color: #212121;
+        }
+        
+        /* Status badge */
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .status-enabled {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .status-disabled {
+            background: #ffebee;
+            color: #c62828;
+        }
+        
+        .status-pending {
+            background: #fff3e0;
+            color: #e65100;
+        }
+        
+        /* Access method */
+        .access-method {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+        }
+        
+        .access-method .material-icons {
+            font-size: 16px;
+        }
+        
+        /* Actions */
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-action {
+            padding: 6px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            background: #ffffff;
+            color: #424242;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .btn-action:hover {
+            background: #f5f5f5;
+            border-color: #bdbdbd;
+        }
+        
+        .btn-action.danger {
+            border-color: #e0e0e0;
+            color: #c62828;
+        }
+        
+        .btn-action.danger:hover {
+            background: #ffebee;
+            border-color: #ef5350;
+        }
+        
+        /* Alert */
+        .alert {
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 24px;
+            display: none;
+            font-size: 14px;
+            border-left: 4px solid;
+        }
+        
+        .alert-success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-left-color: #4caf50;
+        }
+        
+        .alert-error {
+            background: #ffebee;
+            color: #c62828;
+            border-left-color: #f44336;
+        }
+        
+        .alert.show {
+            display: block;
+        }
+        
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #757575;
+        }
+        
+        .empty-state .material-icons {
+            font-size: 64px;
+            color: #bdbdbd;
+            margin-bottom: 16px;
+        }
+        
+        .empty-state h2 {
+            font-size: 20px;
+            font-weight: 400;
+            color: #424242;
+            margin-bottom: 8px;
+        }
+        
+        .empty-state p {
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+        
+        .empty-state a {
+            color: #1976d2;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .empty-state a:hover {
+            text-decoration: underline;
+        }
+        
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #757575;
+        }
+        
+        .loading .material-icons {
+            font-size: 48px;
+            color: #bdbdbd;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Warning box */
+        .warning-box {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-top: 8px;
+            font-size: 13px;
+            color: #e65100;
+        }
+        
+        .channel-name {
+            font-weight: 500;
+            color: #212121;
+        }
+        
+        .channel-id {
+            font-family: monospace;
+            font-size: 12px;
+            color: #757575;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-title">
+            <span class="material-icons">list</span>
+            <span>Мои каналы</span>
+        </div>
+        <div class="header-actions">
+            <a href="/instructions" class="btn-header">
+                <span class="material-icons" style="font-size: 18px;">help_outline</span>
+                Инструкции
+            </a>
+            <a href="/" class="btn-header">
+                <span class="material-icons" style="font-size: 18px;">add</span>
+                Добавить канал
+            </a>
+        </div>
+    </header>
+    
+    <!-- Main content -->
+    <div class="container">
+        <div class="page-header">
+            <h1>Управление каналами</h1>
+        </div>
+        
+        <div class="content-card">
+            <div id="alert" class="alert"></div>
+            
+            <div class="user-input">
+                <div class="user-input-group">
+                    <label>Ваш Telegram ID:</label>
+                    <input 
+                        type="number" 
+                        id="userTelegramId" 
+                        placeholder="Введите ваш Telegram ID"
+                        value="{{ user_telegram_id }}"
+                    />
+                </div>
+                <button class="btn-load" onclick="loadChannels()">
+                    <span class="material-icons" style="font-size: 18px;">search</span>
+                    Загрузить
+                </button>
+            </div>
+            
+            <div id="loading" class="loading" style="display: none;">
+                <span class="material-icons">hourglass_empty</span>
+                <p style="margin-top: 16px;">Загрузка каналов...</p>
+            </div>
+            
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <span class="material-icons">inbox</span>
+                <h2>Каналов пока нет</h2>
+                <p>Добавьте первый канал для начала мониторинга</p>
+                <a href="/">Добавить канал</a>
+            </div>
+            
+            <div id="tableContainer" class="table-container" style="display: none;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Канал</th>
+                            <th>Тип</th>
+                            <th>Сообщений</th>
+                            <th>Получатель</th>
+                            <th>Доступ</th>
+                            <th>Статус</th>
+                            <th>Последний дайджест</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="channelsTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const userTelegramIdInput = document.getElementById('userTelegramId');
+        const tableContainer = document.getElementById('tableContainer');
+        const tableBody = document.getElementById('channelsTableBody');
+        const emptyState = document.getElementById('emptyState');
+        const loading = document.getElementById('loading');
+        const alertDiv = document.getElementById('alert');
+        
+        function showAlert(message, type = 'success') {
+            alertDiv.className = `alert alert-${type} show`;
+            alertDiv.textContent = message;
+            setTimeout(() => {
+                alertDiv.classList.remove('show');
+            }, 5000);
+        }
+        
+        async function loadChannels() {
+            const userTelegramId = userTelegramIdInput.value;
+            
+            if (!userTelegramId) {
+                showAlert('Введите ваш Telegram ID', 'error');
+                return;
+            }
+            
+            loading.style.display = 'block';
+            tableContainer.style.display = 'none';
+            emptyState.style.display = 'none';
+            
+            try {
+                const response = await fetch(`/api/channels?user_telegram_id=${userTelegramId}`);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Ошибка загрузки каналов');
+                }
+                
+                loading.style.display = 'none';
+                
+                if (data.channels.length === 0) {
+                    emptyState.style.display = 'block';
+                    return;
+                }
+                
+                tableBody.innerHTML = data.channels.map(channel => {
+                    return `
+                        <tr>
+                            <td>
+                                <div class="channel-name">${escapeHtml(channel.name)}</div>
+                                <div class="channel-id">ID: ${channel.telegram_chat_id}</div>
+                            </td>
+                            <td>${channel.peer_type}</td>
+                            <td>${channel.total_messages || 0}</td>
+                            <td>${channel.recipient_name || channel.recipient_telegram_id}</td>
+                            <td>
+                                <span class="access-method">
+                                    ✓ Доступен
+                                </span>
+                            </td>
+                            <td>
+                                <span class="status-badge ${channel.enabled ? 'status-enabled' : 'status-disabled'}">
+                                    ${channel.enabled ? '✓ Активен' : '✗ Отключён'}
+                                </span>
+                            </td>
+                            <td>${channel.last_digest_at ? formatDate(channel.last_digest_at) : 'Нет'}</td>
+                            <td>
+                                <div class="actions">
+                                    ${channel.consolidated_doc_path ? `
+                                    <a href="/api/channels/${channel.id}/document?user_telegram_id=${userTelegramId}" 
+                                       class="btn-action" 
+                                       title="Скачать инженерный документ"
+                                       style="text-decoration: none;">
+                                        <span class="material-icons" style="font-size: 16px;">download</span>
+                                        Документ
+                                    </a>
+                                    ` : ''}
+                                    <button class="btn-action" onclick="viewDigests(${channel.id})" title="Дайджесты">
+                                        <span class="material-icons" style="font-size: 16px;">description</span>
+                                        Дайджесты
+                                    </button>
+                                    <button class="btn-action danger" onclick="deleteChannel(${channel.id})" title="Удалить">
+                                        <span class="material-icons" style="font-size: 16px;">delete</span>
+                                        Удалить
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+                
+                tableContainer.style.display = 'block';
+                
+            } catch (error) {
+                loading.style.display = 'none';
+                showAlert(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+        
+        async function deleteChannel(channelId) {
+            if (!confirm('Вы уверены что хотите удалить этот канал?')) {
+                return;
+            }
+            
+            const userTelegramId = userTelegramIdInput.value;
+            
+            try {
+                const response = await fetch(`/api/channels/${channelId}?user_telegram_id=${userTelegramId}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Ошибка удаления');
+                }
+                
+                showAlert('Канал удалён', 'success');
+                loadChannels();
+                
+            } catch (error) {
+                showAlert(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+        
+        function viewDigests(channelId) {
+            alert('Просмотр дайджестов будет доступен в следующей версии');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleString('ru-RU', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+        
+        // Автозагрузка при наличии user_telegram_id в URL
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const userId = urlParams.get('user_telegram_id');
+            if (userId) {
+                userTelegramIdInput.value = userId;
+                loadChannels();
+            }
+        });
+    </script>
+</body>
+</html>

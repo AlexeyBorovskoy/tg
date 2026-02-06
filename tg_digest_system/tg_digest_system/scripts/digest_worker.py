@@ -13,6 +13,8 @@ from typing import Optional
 import pytz
 
 from config import Config, Channel, load_config, get_enabled_channels
+from config_db import merge_channels_from_sources
+import os
 from database import Database
 from telegram_client import TelegramService, TelegramBot
 from ocr import OCRService  # Старый (для обратной совместимости)
@@ -95,6 +97,9 @@ class DigestWorker:
             logger.warning("Step notify send failed: %s", e, extra=_log_ctx(channel=channel, step=step_name))
 
     async def process_channel(self, channel: Channel) -> Optional[int]:
+        """Обрабатывает канал с учётом user_id (мультитенантность)"""
+        # Получаем user_id из канала (если есть)
+        user_id = getattr(channel, 'user_id', None)
         """
         Обрабатывает один канал: сбор сообщений, OCR, генерация дайджеста, рассылка.
         
@@ -103,9 +108,10 @@ class DigestWorker:
         """
         logger.info(f"=== Обработка канала: {channel.name} (ID: {channel.id}) ===")
         
-        # 1. Получаем курсор
-        last_msg_id = self.db.get_last_msg_id(channel.peer_type, channel.id)
-        logger.info(f"Последний обработанный msg_id: {last_msg_id}")
+        # 1. Получаем курсор (с учётом user_id)
+        user_id = getattr(channel, 'user_id', None)
+        last_msg_id = self.db.get_last_msg_id(channel.peer_type, channel.id, user_id)
+        logger.info(f"Последний обработанный msg_id: {last_msg_id} (user_id={user_id})")
         
         # 2. Собираем новые сообщения
         new_messages = 0
@@ -113,7 +119,8 @@ class DigestWorker:
         
         try:
             async for message in self.tg_service.fetch_new_messages(channel, last_msg_id):
-                await self.tg_service.save_message(message, channel)
+                # Сохраняем сообщение с user_id
+                await self.tg_service.save_message(message, channel, user_id=user_id)
                 
                 # Сохраняем медиа
                 if message.media and self.config.defaults.ocr_enabled:
@@ -183,6 +190,7 @@ class DigestWorker:
             tokens_in = tokens_out = 0
         
         # 7. Сохраняем дайджест в БД
+        user_id = getattr(channel, 'user_id', None)
         digest_id = self.db.save_digest(
             peer_type=channel.peer_type,
             peer_id=channel.id,
@@ -193,10 +201,11 @@ class DigestWorker:
             llm_model=self.config.openai_model if llm_digest else None,
             llm_tokens_in=tokens_in,
             llm_tokens_out=tokens_out,
+            user_id=user_id,
         )
         
         # 8. Обновляем курсор
-        self.db.update_last_msg_id(channel.peer_type, channel.id, max_msg_id)
+        self.db.update_last_msg_id(channel.peer_type, channel.id, max_msg_id, user_id=user_id)
 
         # 8b. Сводный инженерный документ: создается/обновляется на основе всех сообщений и медиа
         # Создается при первом запуске (если файла нет) или обновляется при наличии новых сообщений
@@ -314,6 +323,7 @@ class DigestWorker:
             return None
         
         # Сохраняем дайджест в БД
+        user_id = getattr(channel, 'user_id', None)
         digest_id = self.db.save_digest(
             peer_type=channel.peer_type,
             peer_id=channel.id,
@@ -324,6 +334,7 @@ class DigestWorker:
             llm_model=self.config.openai_model,
             llm_tokens_in=tokens_in,
             llm_tokens_out=tokens_out,
+            user_id=user_id,
         )
         
         # Рассылаем дайджест получателям (даже если новых сообщений не было)
@@ -419,11 +430,11 @@ class DigestWorker:
         return "\n".join(lines)
     
     def _is_daily_summary_time(self) -> bool:
-        """Проверяет, наступило ли время для ежедневного сводного дайджеста (21:00 МСК)"""
+        """Проверяет, наступило ли время для ежедневного сводного дайджеста (20:00 МСК)"""
         msk_tz = pytz.timezone("Europe/Moscow")
         now_msk = datetime.now(msk_tz)
         # Проверяем окно 21:00-21:05 МСК
-        return now_msk.hour == 21 and now_msk.minute < 5
+        return now_msk.hour == 20 and now_msk.minute < 5
     
     def _get_daily_date_range(self) -> tuple[datetime, datetime]:
         """Возвращает диапазон дат для сегодняшнего дня (00:00-23:59:59 МСК)"""
@@ -567,6 +578,8 @@ class DigestWorker:
         file_data = full_digest.encode("utf-8")
 
         caption = f"Дайджест по чату: {channel.name} (ID: {channel.id})"
+        
+        user_id = getattr(channel, 'user_id', None)
 
         for recipient in channel.recipients:
             if not recipient.telegram_id:
@@ -583,6 +596,7 @@ class DigestWorker:
                         telegram_id=recipient.telegram_id,
                         delivery_type="text",
                         status="sent" if success else "failed",
+                        user_id=user_id,
                     )
                 
                 # Отправляем файл
@@ -598,6 +612,7 @@ class DigestWorker:
                         telegram_id=recipient.telegram_id,
                         delivery_type="file",
                         status="sent" if success else "failed",
+                        user_id=user_id,
                     )
                 
                 logger.info(f"Доставлено {recipient.name} (ID: {recipient.telegram_id})")
@@ -671,7 +686,7 @@ class DigestWorker:
                 await self._notify_step(channel, step_name, success=True, message="Новых сообщений нет.")
                 return
 
-            self.db.update_last_msg_id(channel.peer_type, channel.id, max_msg_id)
+            self.db.update_last_msg_id(channel.peer_type, channel.id, max_msg_id, user_id=user_id)
             logger.info(
                 "Step %s: собрано %s сообщений, курсор обновлён до %s",
                 step_name,
@@ -974,7 +989,7 @@ class DigestWorker:
                 llm_tokens_in=tokens_in,
                 llm_tokens_out=tokens_out,
             )
-            self.db.update_last_msg_id(channel.peer_type, channel.id, max_msg_id)
+            self.db.update_last_msg_id(channel.peer_type, channel.id, max_msg_id, user_id=user_id)
             changes_summary = ""
             # Сводный документ создается/обновляется на основе всех сообщений и медиа при наличии новых данных
             if channel.consolidated_doc_path and new_messages > 0:
@@ -1023,6 +1038,9 @@ class DigestWorker:
     async def run_once(self, step: Optional[str] = None) -> None:
         """Один цикл обработки всех каналов. step: text|media|ocr|digest|all (None = all)."""
         self._files_to_push = []
+        # Загружаем каналы из БД и файла (мультитенантность)
+        merged_channels = merge_channels_from_sources(self.config)
+        self.config.channels = merged_channels
         channels = get_enabled_channels(self.config)
         step_mode = (step or "all").lower()
         logger.info(
@@ -1092,16 +1110,51 @@ class DigestWorker:
         
         # Отслеживаем последний день, когда был сгенерирован ежедневный дайджест
         last_daily_summary_date = None
+        config_file = Path(self.config.repo_dir) / "config" / "channels.json"
+        if not config_file.exists():
+            config_file = Path(os.environ.get("CONFIG_FILE", str(config_file)))
         
         while True:
             try:
-                # Проверяем, наступило ли время для ежедневного сводного дайджеста (21:00 МСК)
+                # Перезагружаем конфигурацию перед каждым циклом (для поддержки динамического добавления каналов)
+                try:
+                    new_config = load_config(str(config_file))
+                    # Обновляем только список каналов, остальные настройки не меняем
+                    old_channel_ids = {ch.id for ch in self.config.channels}
+                    new_channel_ids = {ch.id for ch in new_config.channels}
+                    
+                    if old_channel_ids != new_channel_ids:
+                        logger.info(f"Обнаружены изменения в конфигурации каналов. Было: {len(old_channel_ids)}, стало: {len(new_channel_ids)}")
+                        # Пересоздаём воркер с новой конфигурацией
+                        self.config = new_config
+                        self.db = Database(self.config)
+                        self.tg_service = TelegramService(self.config, self.db)
+                        # Переинициализируем OCR и LLM сервисы
+                        if self.config.defaults.ocr_enabled:
+                            try:
+                                ocr_provider = os.environ.get("OCR_PROVIDER", "tesseract").lower()
+                                cloud_providers = ("ocr_space", "easyocr", "google_vision", "yandex_vision")
+                                if ocr_provider in cloud_providers or hasattr(self.config.defaults, 'ocr_provider'):
+                                    self.ocr_service = UnifiedOCRService(self.config, self.db)
+                                else:
+                                    self.ocr_service = OCRService(self.config, self.db)
+                            except Exception as e:
+                                logger.warning(f"Не удалось переинициализировать OCR: {e}")
+                                self.ocr_service = OCRService(self.config, self.db)
+                        else:
+                            self.ocr_service = None
+                        self.llm_service = LLMService(self.config)
+                        logger.info("Конфигурация перезагружена, новые каналы будут обработаны")
+                except Exception as e:
+                    logger.warning(f"Ошибка перезагрузки конфигурации: {e}, используем текущую")
+                
+                # Проверяем, наступило ли время для ежедневного сводного дайджеста (20:00 МСК)
                 msk_tz = pytz.timezone("Europe/Moscow")
                 now_msk = datetime.now(msk_tz)
                 today_date = now_msk.date()
                 
                 if self._is_daily_summary_time() and last_daily_summary_date != today_date:
-                    logger.info("Время для ежедневного сводного дайджеста (21:00 МСК)")
+                    logger.info("Время для ежедневного сводного дайджеста (20:00 МСК)")
                     channels = get_enabled_channels(self.config)
                     for channel in channels:
                         try:

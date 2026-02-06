@@ -109,7 +109,7 @@ class TelegramService:
             logger.error(f"Ошибка получения сообщений из {channel.name}: {e}")
             raise
     
-    async def save_message(self, message: Message, channel: ChannelConfig) -> None:
+    async def save_message(self, message: Message, channel: ChannelConfig, user_id: Optional[int] = None) -> None:
         """Сохраняет сообщение в БД"""
         # Определяем отправителя
         sender_id = None
@@ -130,7 +130,7 @@ class TelegramService:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         
-        # Сохраняем сообщение
+        # Сохраняем сообщение с user_id
         self.db.upsert_message(
             peer_type=channel.peer_type,
             peer_id=channel.id,
@@ -140,6 +140,7 @@ class TelegramService:
             sender_name=sender_name,
             text=message.text or "",
             raw_json=message.to_dict() if self.config.debug else None,
+            user_id=user_id,
         )
         
         logger.debug(f"Сохранено сообщение {message.id} от {sender_name}")

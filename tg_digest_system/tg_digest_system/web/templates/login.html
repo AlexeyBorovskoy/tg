@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Digest — Вход</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #212121;
+        }
+        
+        .login-container {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        
+        .login-header .material-icons {
+            font-size: 48px;
+            color: #1976d2;
+            margin-bottom: 16px;
+        }
+        
+        .login-header h1 {
+            font-size: 24px;
+            font-weight: 400;
+            color: #212121;
+            margin-bottom: 8px;
+        }
+        
+        .login-header p {
+            font-size: 14px;
+            color: #757575;
+        }
+        
+        .form-group {
+            margin-bottom: 24px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #424242;
+            font-size: 14px;
+        }
+        
+        input[type="number"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 16px;
+            color: #212121;
+            background: #ffffff;
+            transition: border-color 0.2s;
+        }
+        
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #1976d2;
+        }
+        
+        input::placeholder {
+            color: #9e9e9e;
+        }
+        
+        .btn-login {
+            width: 100%;
+            background: #1976d2;
+            color: #ffffff;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-login:hover {
+            background: #1565c0;
+        }
+        
+        .btn-login:disabled {
+            background: #e0e0e0;
+            color: #9e9e9e;
+            cursor: not-allowed;
+        }
+        
+        .alert {
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            border-left: 4px solid;
+            display: none;
+        }
+        
+        .alert.show {
+            display: block;
+        }
+        
+        .alert-error {
+            background: #ffebee;
+            color: #c62828;
+            border-left-color: #f44336;
+        }
+        
+        .alert-info {
+            background: #e3f2fd;
+            color: #1565c0;
+            border-left-color: #1976d2;
+        }
+        
+        .help-link {
+            text-align: center;
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .help-link a {
+            color: #1976d2;
+            text-decoration: none;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .help-link a:hover {
+            text-decoration: underline;
+        }
+        
+        .info-box {
+            background: #f5f5f5;
+            border-left: 4px solid #1976d2;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 24px;
+            font-size: 13px;
+            color: #424242;
+        }
+        
+        .info-box strong {
+            color: #212121;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <span class="material-icons">lock</span>
+            <h1>Вход в систему</h1>
+            <p>Введите ваш Telegram ID для доступа</p>
+        </div>
+        
+        <div id="alert" class="alert"></div>
+        
+        <div class="info-box">
+            <strong>Как узнать Telegram ID?</strong><br>
+            Откройте бота <a href="https://t.me/userinfobot" target="_blank" style="color: #1976d2;">@userinfobot</a> 
+            или <a href="/instructions" style="color: #1976d2;">посмотрите инструкции</a>
+        </div>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="telegramId">Ваш Telegram ID</label>
+                <input 
+                    type="number" 
+                    id="telegramId" 
+                    name="telegram_id"
+                    placeholder="Например: 499412926"
+                    required
+                    autofocus
+                />
+            </div>
+            
+            <button type="submit" class="btn-login" id="loginBtn">
+                <span class="material-icons" style="font-size: 20px;">login</span>
+                Войти
+            </button>
+        </form>
+        
+        <div class="help-link">
+            <a href="/instructions">
+                <span class="material-icons" style="font-size: 18px;">help_outline</span>
+                Инструкции по получению данных
+            </a>
+        </div>
+    </div>
+    
+    <script>
+        const form = document.getElementById('loginForm');
+        const alertDiv = document.getElementById('alert');
+        const loginBtn = document.getElementById('loginBtn');
+        
+        function showAlert(message, type = 'error') {
+            alertDiv.className = `alert alert-${type} show`;
+            alertDiv.textContent = message;
+        }
+        
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const telegramId = document.getElementById('telegramId').value;
+            
+            if (!telegramId) {
+                showAlert('Введите ваш Telegram ID', 'error');
+                return;
+            }
+            
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<span class="material-icons" style="font-size: 20px;">hourglass_empty</span> Вход...';
+            
+            try {
+                // 1. Создаём/получаем пользователя
+                const userResponse = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        telegram_id: parseInt(telegramId),
+                        name: null
+                    })
+                });
+                
+                if (!userResponse.ok) {
+                    throw new Error('Ошибка создания пользователя');
+                }
+                
+                const userData = await userResponse.json();
+                
+                // 2. Создаём сессию (логинимся)
+                const loginResponse = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        telegram_id: parseInt(telegramId)
+                    })
+                });
+                
+                if (!loginResponse.ok) {
+                    const error = await loginResponse.json();
+                    throw new Error(error.detail || 'Ошибка входа');
+                }
+                
+                // 3. Редирект на главную страницу
+                window.location.href = '/';
+                
+            } catch (error) {
+                showAlert(`Ошибка: ${error.message}`, 'error');
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '<span class="material-icons" style="font-size: 20px;">login</span> Войти';
+            }
+        });
+    </script>
+</body>
+</html>

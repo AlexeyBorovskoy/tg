@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Digest — Мои каналы (Preview)</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            color: #212121;
+        }
+        
+        /* Header */
+        .header {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0 24px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .header-title {
+            font-size: 18px;
+            font-weight: 400;
+            color: #212121;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .header-title .material-icons {
+            font-size: 24px;
+            color: #424242;
+        }
+        
+        .header-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-header {
+            background: #1976d2;
+            border: none;
+            color: #ffffff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        
+        .btn-header:hover {
+            background: #1565c0;
+        }
+        
+        /* Main container */
+        .container {
+            max-width: 1200px;
+            margin: 24px auto;
+            padding: 0 24px;
+        }
+        
+        .page-header {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        .page-header h1 {
+            font-size: 24px;
+            font-weight: 400;
+            color: #212121;
+            margin-bottom: 8px;
+        }
+        
+        /* Content card */
+        .content-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        /* User input */
+        .user-input {
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 16px;
+            margin-bottom: 24px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+        
+        .user-input-group {
+            flex: 1;
+        }
+        
+        .user-input label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #424242;
+            font-size: 14px;
+        }
+        
+        .user-input input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #212121;
+            background: #ffffff;
+        }
+        
+        .user-input input:focus {
+            outline: none;
+            border-color: #1976d2;
+        }
+        
+        .btn-load {
+            background: #1976d2;
+            color: #ffffff;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.2s;
+        }
+        
+        .btn-load:hover {
+            background: #1565c0;
+        }
+        
+        /* Table */
+        .table-container {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        thead {
+            background: #f5f5f5;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 500;
+            font-size: 14px;
+            color: #424242;
+        }
+        
+        tbody tr {
+            border-bottom: 1px solid #e0e0e0;
+            transition: background 0.2s;
+        }
+        
+        tbody tr:hover {
+            background: #fafafa;
+        }
+        
+        td {
+            padding: 12px 16px;
+            font-size: 14px;
+            color: #212121;
+        }
+        
+        /* Status badge */
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .status-enabled {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .status-disabled {
+            background: #ffebee;
+            color: #c62828;
+        }
+        
+        .status-pending {
+            background: #fff3e0;
+            color: #e65100;
+        }
+        
+        /* Access method */
+        .access-method {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+        }
+        
+        .access-method .material-icons {
+            font-size: 16px;
+        }
+        
+        /* Actions */
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-action {
+            padding: 6px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            background: #ffffff;
+            color: #424242;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .btn-action:hover {
+            background: #f5f5f5;
+            border-color: #bdbdbd;
+        }
+        
+        .btn-action.danger {
+            border-color: #e0e0e0;
+            color: #c62828;
+        }
+        
+        .btn-action.danger:hover {
+            background: #ffebee;
+            border-color: #ef5350;
+        }
+        
+        /* Warning box */
+        .warning-box {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-top: 8px;
+            font-size: 13px;
+            color: #e65100;
+        }
+        
+        .channel-name {
+            font-weight: 500;
+            color: #212121;
+        }
+        
+        .channel-id {
+            font-family: monospace;
+            font-size: 12px;
+            color: #757575;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-title">
+            <span class="material-icons">list</span>
+            <span>Мои каналы</span>
+        </div>
+        <div class="header-actions">
+            <a href="preview_index.html" class="btn-header">
+                <span class="material-icons" style="font-size: 18px;">add</span>
+                Добавить канал
+            </a>
+        </div>
+    </header>
+    
+    <!-- Main content -->
+    <div class="container">
+        <div class="page-header">
+            <h1>Управление каналами</h1>
+        </div>
+        
+        <div class="content-card">
+            <div class="user-input">
+                <div class="user-input-group">
+                    <label>Ваш Telegram ID:</label>
+                    <input 
+                        type="number" 
+                        id="userTelegramId" 
+                        placeholder="Введите ваш Telegram ID"
+                        value="499412926"
+                    />
+                </div>
+                <button class="btn-load" onclick="alert('Это preview версия. Данные не загружаются.')">
+                    <span class="material-icons" style="font-size: 18px;">search</span>
+                    Загрузить
+                </button>
+            </div>
+            
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Канал</th>
+                            <th>Тип</th>
+                            <th>Сообщений</th>
+                            <th>Получатель</th>
+                            <th>Доступ</th>
+                            <th>Статус</th>
+                            <th>Последний дайджест</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <div class="channel-name">Технический чат разработки</div>
+                                <div class="channel-id">ID: -1001234567890</div>
+                            </td>
+                            <td>channel</td>
+                            <td>1,234</td>
+                            <td>Иван Иванов</td>
+                            <td>
+                                <span class="access-method">
+                                    🤖 Бот
+                                </span>
+                            </td>
+                            <td>
+                                <span class="status-badge status-enabled">
+                                    ✓ Активен
+                                </span>
+                            </td>
+                            <td>06.02.2026, 14:30</td>
+                            <td>
+                                <div class="actions">
+                                    <button class="btn-action" onclick="alert('Просмотр дайджестов')">
+                                        <span class="material-icons" style="font-size: 16px;">description</span>
+                                        Дайджесты
+                                    </button>
+                                    <button class="btn-action danger" onclick="alert('Удаление канала')">
+                                        <span class="material-icons" style="font-size: 16px;">delete</span>
+                                        Удалить
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <div class="channel-name">Группа поддержки</div>
+                                <div class="channel-id">ID: 5228538198</div>
+                                <div class="warning-box">
+                                    ⚠️ Требуется настройка: Добавьте бота в чат как администратора
+                                </div>
+                            </td>
+                            <td>group</td>
+                            <td>567</td>
+                            <td>Петр Петров</td>
+                            <td>
+                                <span class="access-method">
+                                    ⚠️ Требует настройки
+                                </span>
+                            </td>
+                            <td>
+                                <span class="status-badge status-pending">
+                                    ⚠ Требует настройки
+                                </span>
+                            </td>
+                            <td>Нет</td>
+                            <td>
+                                <div class="actions">
+                                    <button class="btn-action" onclick="alert('Просмотр дайджестов')">
+                                        <span class="material-icons" style="font-size: 16px;">description</span>
+                                        Дайджесты
+                                    </button>
+                                    <button class="btn-action danger" onclick="alert('Удаление канала')">
+                                        <span class="material-icons" style="font-size: 16px;">delete</span>
+                                        Удалить
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <div class="channel-name">Канал новостей</div>
+                                <div class="channel-id">ID: -1009876543210</div>
+                            </td>
+                            <td>channel</td>
+                            <td>3,456</td>
+                            <td>Мария Сидорова</td>
+                            <td>
+                                <span class="access-method">
+                                    👤 Сессия
+                                </span>
+                            </td>
+                            <td>
+                                <span class="status-badge status-enabled">
+                                    ✓ Активен
+                                </span>
+                            </td>
+                            <td>06.02.2026, 12:15</td>
+                            <td>
+                                <div class="actions">
+                                    <button class="btn-action" onclick="alert('Просмотр дайджестов')">
+                                        <span class="material-icons" style="font-size: 16px;">description</span>
+                                        Дайджесты
+                                    </button>
+                                    <button class="btn-action danger" onclick="alert('Удаление канала')">
+                                        <span class="material-icons" style="font-size: 16px;">delete</span>
+                                        Удалить
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

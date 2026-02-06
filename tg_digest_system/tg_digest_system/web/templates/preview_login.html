@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Digest — Вход (Preview)</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #212121;
+        }
+        
+        .login-container {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        
+        .login-header .material-icons {
+            font-size: 48px;
+            color: #1976d2;
+            margin-bottom: 16px;
+        }
+        
+        .login-header h1 {
+            font-size: 24px;
+            font-weight: 400;
+            color: #212121;
+            margin-bottom: 8px;
+        }
+        
+        .login-header p {
+            font-size: 14px;
+            color: #757575;
+        }
+        
+        .form-group {
+            margin-bottom: 24px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #424242;
+            font-size: 14px;
+        }
+        
+        input[type="number"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 16px;
+            color: #212121;
+            background: #ffffff;
+            transition: border-color 0.2s;
+        }
+        
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #1976d2;
+        }
+        
+        input::placeholder {
+            color: #9e9e9e;
+        }
+        
+        .btn-login {
+            width: 100%;
+            background: #1976d2;
+            color: #ffffff;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-login:hover {
+            background: #1565c0;
+        }
+        
+        .info-box {
+            background: #f5f5f5;
+            border-left: 4px solid #1976d2;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 24px;
+            font-size: 13px;
+            color: #424242;
+        }
+        
+        .info-box strong {
+            color: #212121;
+        }
+        
+        .info-box a {
+            color: #1976d2;
+            text-decoration: none;
+        }
+        
+        .info-box a:hover {
+            text-decoration: underline;
+        }
+        
+        .help-link {
+            text-align: center;
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .help-link a {
+            color: #1976d2;
+            text-decoration: none;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .help-link a:hover {
+            text-decoration: underline;
+        }
+        
+        .explanation-box {
+            background: #e3f2fd;
+            border-left: 4px solid #1976d2;
+            padding: 16px;
+            border-radius: 4px;
+            margin-top: 24px;
+            font-size: 13px;
+            color: #1565c0;
+        }
+        
+        .explanation-box h3 {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #1976d2;
+        }
+        
+        .explanation-box ol {
+            margin-left: 20px;
+            line-height: 1.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <span class="material-icons">lock</span>
+            <h1>Вход в систему</h1>
+            <p>Введите ваш Telegram ID для доступа</p>
+        </div>
+        
+        <div class="info-box">
+            <strong>Как узнать Telegram ID?</strong><br>
+            Откройте бота <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> 
+            или <a href="/instructions">посмотрите инструкции</a>
+        </div>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="telegramId">Ваш Telegram ID</label>
+                <input 
+                    type="number" 
+                    id="telegramId" 
+                    name="telegram_id"
+                    placeholder="Например: 499412926"
+                    value="499412926"
+                    required
+                    autofocus
+                />
+            </div>
+            
+            <button type="button" class="btn-login" onclick="alert('Это preview версия. Форма не отправляет данные.')">
+                <span class="material-icons" style="font-size: 20px;">login</span>
+                Войти
+            </button>
+        </form>
+        
+        <div class="help-link">
+            <a href="/instructions">
+                <span class="material-icons" style="font-size: 18px;">help_outline</span>
+                Инструкции по получению данных
+            </a>
+        </div>
+        
+        <div class="explanation-box">
+            <h3>Как работает проверка доступа:</h3>
+            <ol>
+                <li>Вы вводите ваш Telegram ID (например: 499412926)</li>
+                <li>Система создаёт сессию и сохраняет её в БД</li>
+                <li>Браузер получает cookie с токеном сессии</li>
+                <li>При следующих запросах система проверяет cookie</li>
+                <li>Если cookie валиден → вы авторизованы</li>
+                <li>Если cookie нет или истёк → нужно войти заново</li>
+            </ol>
+            <p style="margin-top: 12px; font-weight: 500;">
+                ⚠️ Важно: Система НЕ проверяет может ли пользователь работать. 
+                Любой кто знает Telegram ID может войти. Это нормально для внутреннего использования.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

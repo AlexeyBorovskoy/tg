@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Digest — Инструкции</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            color: #212121;
+        }
+        
+        /* Header */
+        .header {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0 24px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .header-title {
+            font-size: 18px;
+            font-weight: 400;
+            color: #212121;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .header-title .material-icons {
+            font-size: 24px;
+            color: #424242;
+        }
+        
+        .header-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-header {
+            background: transparent;
+            border: 1px solid #e0e0e0;
+            color: #424242;
+            padding: 8px 16px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        
+        .btn-header:hover {
+            background: #f5f5f5;
+        }
+        
+        .btn-header.primary {
+            background: #1976d2;
+            color: #ffffff;
+            border-color: #1976d2;
+        }
+        
+        .btn-header.primary:hover {
+            background: #1565c0;
+        }
+        
+        /* Main container */
+        .container {
+            max-width: 900px;
+            margin: 24px auto;
+            padding: 0 24px;
+        }
+        
+        .page-header {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        .page-header h1 {
+            font-size: 24px;
+            font-weight: 400;
+            color: #212121;
+            margin-bottom: 8px;
+        }
+        
+        .page-header p {
+            font-size: 14px;
+            color: #757575;
+        }
+        
+        /* Content card */
+        .content-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        .content-card h2 {
+            font-size: 18px;
+            font-weight: 500;
+            color: #212121;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .step {
+            margin-bottom: 32px;
+            padding-bottom: 32px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .step:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #1976d2;
+            color: #ffffff;
+            font-weight: 600;
+            font-size: 16px;
+            margin-bottom: 12px;
+        }
+        
+        .step-title {
+            font-size: 16px;
+            font-weight: 500;
+            color: #212121;
+            margin-bottom: 8px;
+        }
+        
+        .step-description {
+            font-size: 14px;
+            color: #424242;
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }
+        
+        .step-list {
+            margin-left: 20px;
+            margin-top: 12px;
+        }
+        
+        .step-list li {
+            font-size: 14px;
+            color: #424242;
+            line-height: 1.8;
+            margin-bottom: 8px;
+        }
+        
+        .code-block {
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 12px 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #212121;
+            margin: 12px 0;
+            overflow-x: auto;
+        }
+        
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #1976d2;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin: 12px 0;
+            font-size: 14px;
+            color: #1565c0;
+        }
+        
+        .warning-box {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin: 12px 0;
+            font-size: 14px;
+            color: #e65100;
+        }
+        
+        .screenshot-placeholder {
+            background: #f5f5f5;
+            border: 2px dashed #e0e0e0;
+            border-radius: 4px;
+            padding: 40px;
+            text-align: center;
+            color: #757575;
+            font-size: 14px;
+            margin: 12px 0;
+        }
+        
+        .bot-link {
+            color: #1976d2;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .bot-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-title">
+            <span class="material-icons">help_outline</span>
+            <span>Инструкции</span>
+        </div>
+        <div class="header-actions">
+            <a href="/channels" class="btn-header">
+                <span class="material-icons" style="font-size: 18px;">list</span>
+                Мои каналы
+            </a>
+            <a href="/" class="btn-header primary">
+                <span class="material-icons" style="font-size: 18px;">add</span>
+                Добавить канал
+            </a>
+        </div>
+    </header>
+    
+    <!-- Main content -->
+    <div class="container">
+        <div class="page-header">
+            <h1>Как получить необходимые данные</h1>
+            <p>Пошаговая инструкция для новых пользователей</p>
+        </div>
+        
+        <div class="content-card">
+            <div class="info-box">
+                <strong>Важно:</strong> Система работает только с чатами, где она присутствует. 
+                Если вы хотите добавить чат, убедитесь что система имеет к нему доступ.
+            </div>
+            
+            <!-- Шаг 1: Telegram ID пользователя -->
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-title">Узнать свой Telegram ID</div>
+                <div class="step-description">
+                    Вам понадобится ваш Telegram ID для идентификации в системе. Есть несколько способов:
+                </div>
+                
+                <div style="margin-top: 16px;">
+                    <strong>Способ 1: Через бота @userinfobot</strong>
+                    <ol class="step-list">
+                        <li>Откройте Telegram и найдите бота <a href="https://t.me/userinfobot" target="_blank" class="bot-link">@userinfobot</a></li>
+                        <li>Нажмите кнопку "Start" или отправьте команду <code>/start</code></li>
+                        <li>Бот пришлёт вам ваш Telegram ID (число, например: <code>499412926</code>)</li>
+                    </ol>
+                </div>
+                
+                <div style="margin-top: 16px;">
+                    <strong>Способ 2: Через бота @RawDataBot</strong>
+                    <ol class="step-list">
+                        <li>Откройте Telegram и найдите бота <a href="https://t.me/RawDataBot" target="_blank" class="bot-link">@RawDataBot</a></li>
+                        <li>Нажмите кнопку "Start"</li>
+                        <li>Бот пришлёт JSON с данными вашего аккаунта</li>
+                        <li>Найдите поле <code>"id"</code> - это ваш Telegram ID</li>
+                    </ol>
+                </div>
+                
+                <div class="code-block">
+                    Пример: Ваш Telegram ID может выглядеть так: <strong>499412926</strong>
+                </div>
+            </div>
+            
+            <!-- Шаг 2: ID чата/канала -->
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-title">Узнать ID чата или канала</div>
+                <div class="step-description">
+                    Для добавления чата в систему вам нужен его Telegram ID. Способ зависит от типа чата:
+                </div>
+                
+                <div style="margin-top: 16px;">
+                    <strong>Для публичных каналов:</strong>
+                    <ol class="step-list">
+                        <li>Откройте канал в Telegram</li>
+                        <li>Скопируйте ссылку на канал (например: <code>https://t.me/channel_name</code>)</li>
+                        <li>Или используйте веб-версию Telegram: <code>https://web.telegram.org</code></li>
+                        <li>В URL будет виден ID канала (например: <code>#-1001234567890</code>)</li>
+                    </ol>
+                </div>
+                
+                <div style="margin-top: 16px;">
+                    <strong>Для приватных групп и каналов:</strong>
+                    <ol class="step-list">
+                        <li>Откройте группу/канал в Telegram</li>
+                        <li>Перейдите в настройки группы/канала</li>
+                        <li>Найдите раздел "Информация" или "About"</li>
+                        <li>Или используйте бота <a href="https://t.me/RawDataBot" target="_blank" class="bot-link">@RawDataBot</a>:
+                            <ul style="margin-left: 20px; margin-top: 8px;">
+                                <li>Перешлите любое сообщение из группы/канала боту</li>
+                                <li>Бот пришлёт данные сообщения</li>
+                                <li>Найдите поле <code>"chat"</code> → <code>"id"</code> - это ID чата</li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+                
+                <div class="warning-box">
+                    <strong>Важно:</strong> ID каналов обычно начинается с <code>-100</code> (например: <code>-1001234567890</code>). 
+                    ID групп может быть положительным числом (например: <code>5228538198</code>).
+                </div>
+                
+                <div class="code-block">
+                    Примеры ID:
+                    • Канал: <strong>-1001234567890</strong>
+                    • Группа: <strong>5228538198</strong>
+                </div>
+            </div>
+            
+            <!-- Шаг 3: ID получателя дайджестов -->
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-title">Указать куда присылать дайджесты</div>
+                <div class="step-description">
+                    Вы можете получать дайджесты в личные сообщения или через бота:
+                </div>
+                
+                <div style="margin-top: 16px;">
+                    <strong>Вариант 1: Личные сообщения</strong>
+                    <ol class="step-list">
+                        <li>Используйте ваш Telegram ID (из шага 1)</li>
+                        <li>Или ID другого пользователя, которому нужно отправлять дайджесты</li>
+                    </ol>
+                </div>
+                
+                <div style="margin-top: 16px;">
+                    <strong>Вариант 2: Через бота</strong>
+                    <ol class="step-list">
+                        <li>Создайте бота через <a href="https://t.me/BotFather" target="_blank" class="bot-link">@BotFather</a></li>
+                        <li>Получите токен бота</li>
+                        <li>Узнайте ID бота через <a href="https://t.me/userinfobot" target="_blank" class="bot-link">@userinfobot</a></li>
+                        <li>Используйте ID бота как получателя</li>
+                    </ol>
+                </div>
+                
+                <div class="code-block">
+                    Примеры получателей:
+                    • Ваш личный ID: <strong>499412926</strong>
+                    • ID бота: <strong>8572555788</strong>
+                </div>
+            </div>
+            
+            <!-- Шаг 4: Проверка доступа -->
+            <div class="step">
+                <div class="step-number">4</div>
+                <div class="step-title">Проверить доступ системы к чату</div>
+                <div class="step-description">
+                    Система работает только с чатами, где она присутствует. Перед добавлением убедитесь:
+                </div>
+                
+                <ol class="step-list" style="margin-top: 12px;">
+                    <li>Система должна быть участником чата/канала</li>
+                    <li>Для приватных групп система должна быть добавлена администратором</li>
+                    <li>Если система не имеет доступа, вы получите сообщение об ошибке при добавлении</li>
+                </ol>
+                
+                <div class="warning-box">
+                    <strong>Ограничение тестовой версии:</strong> В настоящее время система находится в стадии тестирования 
+                    и поддерживает работу только с чатами, где она присутствует. Работа со сторонними ресурсами пока не поддерживается.
+                </div>
+            </div>
+            
+            <!-- Шаг 5: Добавление канала -->
+            <div class="step">
+                <div class="step-number">5</div>
+                <div class="step-title">Добавить канал в систему</div>
+                <div class="step-description">
+                    После получения всех данных:
+                </div>
+                
+                <ol class="step-list" style="margin-top: 12px;">
+                    <li>Перейдите на <a href="/" class="bot-link">страницу добавления канала</a></li>
+                    <li>Заполните форму:
+                        <ul style="margin-left: 20px; margin-top: 8px;">
+                            <li>Ваш Telegram ID</li>
+                            <li>Telegram ID чата для мониторинга</li>
+                            <li>Название чата (опционально)</li>
+                            <li>Куда отправлять дайджесты (Telegram ID получателя)</li>
+                            <li>Имя получателя (опционально)</li>
+                        </ul>
+                    </li>
+                    <li>Нажмите "Добавить канал"</li>
+                    <li>Система проверит доступ и начнёт обработку</li>
+                </ol>
+                
+                <div class="info-box" style="margin-top: 12px;">
+                    После добавления система автоматически:
+                    • Загрузит всю историю чата
+                    • Обработает изображения через OCR
+                    • Создаст сводный инженерный документ
+                    • Начнёт отправлять дайджесты указанному получателю
+                </div>
+            </div>
+            
+            <!-- Дополнительная информация -->
+            <div class="step">
+                <div class="step-title" style="border-bottom: none; padding-bottom: 0;">
+                    <span class="material-icons" style="font-size: 20px;">info</span>
+                    Дополнительная информация
+                </div>
+                
+                <div style="margin-top: 16px;">
+                    <strong>Скачивание инженерного документа:</strong>
+                    <ul class="step-list">
+                        <li>После обработки чата система создаст сводный инженерный документ</li>
+                        <li>Вы можете скачать его на странице <a href="/channels" class="bot-link">"Мои каналы"</a></li>
+                        <li>Нажмите кнопку "Документ" рядом с нужным каналом</li>
+                    </ul>
+                </div>
+                
+                <div style="margin-top: 16px;">
+                    <strong>Просмотр дайджестов:</strong>
+                    <ul class="step-list">
+                        <li>Все дайджесты отправляются указанному получателю</li>
+                        <li>Вы можете просмотреть историю дайджестов на странице каналов</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content-card" style="text-align: center; padding: 32px;">
+            <a href="/" class="btn-header primary" style="display: inline-flex;">
+                <span class="material-icons" style="font-size: 18px;">add</span>
+                Добавить канал
+            </a>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,24 @@
+[Unit]
+Description=TG Digest Web Interface
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ripas
+Group=ripas
+WorkingDirectory=/home/ripas/tg_digest_system/tg_digest_system/web
+Environment="PATH=/home/ripas/tg_digest_system/.venv/bin"
+ExecStart=/home/ripas/tg_digest_system/tg_digest_system/web/run_web.sh
+Restart=always
+RestartSec=10
+
+# Переменные окружения (если не загружаются из .env)
+EnvironmentFile=-/home/ripas/tg_digest_system/.env
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tg_digest_web
+
+[Install]
+WantedBy=multi-user.target
