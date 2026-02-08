@@ -2,8 +2,9 @@
 # TG Digest System - Docker Compose
 # ==============================================================================
 # Запуск: docker-compose up -d
-# Логи:   docker-compose logs -f worker
+# Логи:   docker-compose logs -f worker   или  docker-compose logs -f web
 # Стоп:   docker-compose down
+# Деплой: см. deploy.sh и DEPLOY.md
 # ==============================================================================
 
 version: "3.8"
@@ -19,19 +20,89 @@ services:
     environment:
       POSTGRES_DB: ${PGDATABASE:-tg_digest}
       POSTGRES_USER: ${PGUSER:-tg_digest}
-      POSTGRES_PASSWORD: ${PGPASSWORD:?Установите PGPASSWORD в .env}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-tg_digest_local}
     volumes:
-      # Данные БД
       - postgres_data:/var/lib/postgresql/data
-      # Инициализация схемы
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ../db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     ports:
-      - "127.0.0.1:5432:5432"
+      # Порт на хосте: по умолчанию 5433 (проверен; 5432 часто занят системным PostgreSQL)
+      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_HOST_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-tg_digest} -d ${PGDATABASE:-tg_digest}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - tg_digest_net
+
+  # ---------------------------------------------------------------------------
+  # Миграции БД (001–005). Запускается после postgres, затем завершается.
+  # ---------------------------------------------------------------------------
+  migrate:
+    image: postgres:16-alpine
+    container_name: tg_digest_migrate
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${PGDATABASE:-tg_digest}
+      PGUSER: ${PGUSER:-tg_digest}
+      PGPASSWORD: ${PGPASSWORD}
+    volumes:
+      - ../db/migrations:/migrations:ro
+    command: >
+      sh -c "
+      set -e;
+      for f in /migrations/001_add_user_id.sql /migrations/002_add_user_sessions.sql
+               /migrations/003_add_prompt_texts.sql /migrations/004_add_prompts_table.sql
+               /migrations/005_prompt_library.sql /migrations/006_entity_settings_and_bots.sql; do
+        [ -f \"$$f\" ] && echo \"Running $$f\" && psql -v ON_ERROR_STOP=1 -h $$PGHOST -U $$PGUSER -d $$PGDATABASE -f \"$$f\";
+      done;
+      echo Migrations done.
+      "
+    networks:
+      - tg_digest_net
+
+  # ---------------------------------------------------------------------------
+  # Web (FastAPI) — веб-интерфейс добавления каналов, промпты, проверки
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    container_name: tg_digest_web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${PGDATABASE:-tg_digest}
+      PGUSER: ${PGUSER:-tg_digest}
+      PGPASSWORD: ${PGPASSWORD}
+      PROMPTS_DIR: /app/prompts
+      TG_API_ID: ${TG_API_ID:-}
+      TG_API_HASH: ${TG_API_HASH:-}
+      TG_SESSION_FILE: /app/data/telethon.session
+      REPO_DIR: ${REPO_DIR:-/app/repo}
+    volumes:
+      - ../prompts:/app/prompts:ro
+      - worker_data:/app/data:ro
+      - ..:/app/repo:ro
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     networks:
       - tg_digest_net
 
@@ -48,10 +119,10 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      # Telegram
-      TG_API_ID: ${TG_API_ID:?Установите TG_API_ID в .env}
-      TG_API_HASH: ${TG_API_HASH:?Установите TG_API_HASH в .env}
-      TG_BOT_TOKEN: ${TG_BOT_TOKEN:?Установите TG_BOT_TOKEN в .env}
+      # Telegram (заполните в .env для работы воркера)
+      TG_API_ID: ${TG_API_ID:-}
+      TG_API_HASH: ${TG_API_HASH:-}
+      TG_BOT_TOKEN: ${TG_BOT_TOKEN:-}
       TG_SESSION_FILE: /app/data/telethon.session
       # PostgreSQL
       PGHOST: postgres
@@ -60,7 +131,7 @@ services:
       PGUSER: ${PGUSER:-tg_digest}
       PGPASSWORD: ${PGPASSWORD}
       # OpenAI
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?Установите OPENAI_API_KEY в .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
       OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-2000}
       OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-0.1}
@@ -80,9 +151,9 @@ services:
       # Для GitLab push: repo_dir должен указывать на монтированный репо (с .git)
       REPO_DIR: ${REPO_DIR:-/app/repo}
     volumes:
-      # Конфигурация (можно менять без пересборки)
-      - ./config:/app/config:ro
-      - ./prompts:/app/prompts:ro
+      # Конфигурация и промпты из репо (../ от docker/)
+      - ../config:/app/config:ro
+      - ../prompts:/app/prompts:ro
       # Репозиторий для GitLab push: дайджесты и сводные доки пишутся в docs/, затем git push
       # При деплое: клонируйте репо в /opt/tg_digest и запускайте из docker/; тогда .. = репо с .git
       - ..:/app/repo:rw

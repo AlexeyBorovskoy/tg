@@ -8,12 +8,13 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
-# Загружаем переменные окружения
-if [ -f ".env" ]; then
-    set -a
-    source .env
-    set +a
-fi
+# Загружаем переменные окружения (.env и секреты)
+set -a
+[ -f "$PROJECT_ROOT/.env" ] && source "$PROJECT_ROOT/.env"
+[ -f "$PROJECT_ROOT/docker/.env" ] && source "$PROJECT_ROOT/docker/.env"
+[ -f "$PROJECT_ROOT/docker/secrets.env" ] && source "$PROJECT_ROOT/docker/secrets.env"
+[ -f "$PROJECT_ROOT/secrets.env" ] && source "$PROJECT_ROOT/secrets.env"
+set +a
 
 # Активируем виртуальное окружение если есть
 if [ -d ".venv" ]; then

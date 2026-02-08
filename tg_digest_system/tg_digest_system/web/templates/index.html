@@ -151,6 +151,23 @@
         .form-group {
             margin-bottom: 24px;
         }
+        .form-group.has-error input {
+            border-color: #c62828;
+            background: #ffebee;
+        }
+        .field-error {
+            display: block;
+            margin-top: 6px;
+            font-size: 13px;
+            color: #c62828;
+            font-weight: 500;
+        }
+        .field-error.field-success {
+            color: #2e7d32;
+        }
+        .field-error:empty {
+            display: none;
+        }
         
         label {
             display: block;
@@ -219,6 +236,38 @@
             background: #e0e0e0;
             color: #9e9e9e;
             cursor: not-allowed;
+        }
+        
+        .input-with-check {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .input-with-check input {
+            flex: 1;
+            min-width: 0;
+        }
+        .btn-check {
+            flex-shrink: 0;
+            padding: 10px 16px;
+            font-size: 13px;
+            background: #f5f5f5;
+            color: #424242;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            white-space: nowrap;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .btn-check:hover {
+            background: #eeeeee;
+            border-color: #bdbdbd;
+        }
+        .btn-check:disabled {
+            background: #fafafa;
+            color: #9e9e9e;
+            cursor: wait;
         }
         
         /* Alert */
@@ -357,6 +406,7 @@
                     <li>Обработает все изображения через OCR</li>
                     <li>Создаст сводный инженерный документ</li>
                     <li>Начнёт отправлять дайджесты в указанный чат или боту</li>
+                    <li>Проверьте поля кнопкой «Проверить» при желании; при отправке форма проверяется полностью (доступ к чату и получателю)</li>
                 </ul>
             </div>
             
@@ -383,42 +433,50 @@
             </div>
             
             <form id="addChannelForm">
-                <div class="form-group">
+                <div class="form-group" data-field="user_telegram_id">
                     <label>
                         Ваш Telegram ID
                         <span class="label-hint">(для идентификации в системе)</span>
                     </label>
-                    <input 
-                        type="number" 
-                        id="userTelegramId" 
-                        name="user_telegram_id"
-                        placeholder="Например: 499412926"
-                        required
-                    />
+                    <div class="input-with-check">
+                        <input 
+                            type="number" 
+                            id="userTelegramId" 
+                            name="user_telegram_id"
+                            placeholder="Например: 499412926"
+                            required
+                        />
+                        <button type="button" class="btn-check" id="checkUserBtn" aria-label="Проверить ID">Проверить</button>
+                    </div>
+                    <span class="field-error" id="err-user_telegram_id" aria-live="polite"></span>
                     <span class="label-hint">
                         Узнать ID можно через @userinfobot или @RawDataBot
                     </span>
                 </div>
                 
-                <div class="form-group">
+                <div class="form-group" data-field="telegram_chat_id">
                     <label>
                         Telegram ID чата для мониторинга
                         <span class="label-hint">(канал или группа, которую хотите контролировать)</span>
                     </label>
-                    <input 
-                        type="number" 
-                        id="chatId" 
-                        name="telegram_chat_id"
-                        placeholder="Например: -1001234567890 или 5228538198"
-                        required
-                    />
+                    <div class="input-with-check">
+                        <input 
+                            type="number" 
+                            id="chatId" 
+                            name="telegram_chat_id"
+                            placeholder="Например: -1001234567890 или 5228538198"
+                            required
+                        />
+                        <button type="button" class="btn-check" id="checkChatBtn" aria-label="Проверить чат">Проверить</button>
+                    </div>
+                    <span class="field-error" id="err-telegram_chat_id" aria-live="polite"></span>
                     <span class="label-hint">
                         Для каналов: отрицательное число (например -1001234567890)<br>
                         Для групп: положительное число (например 5228538198)
                     </span>
                 </div>
                 
-                <div class="form-group">
+                <div class="form-group" data-field="name">
                     <label>
                         Название чата
                         <span class="label-hint">(опционально, определится автоматически)</span>
@@ -431,18 +489,22 @@
                     />
                 </div>
                 
-                <div class="form-group">
+                <div class="form-group" data-field="recipient_telegram_id">
                     <label>
                         Куда отправлять дайджесты
                         <span class="label-hint">(Telegram ID получателя или бота)</span>
                     </label>
-                    <input 
-                        type="number" 
-                        id="recipientId" 
-                        name="recipient_telegram_id"
-                        placeholder="Например: 499412926 или ID вашего бота"
-                        required
-                    />
+                    <div class="input-with-check">
+                        <input 
+                            type="number" 
+                            id="recipientId" 
+                            name="recipient_telegram_id"
+                            placeholder="Например: 499412926 или ID вашего бота"
+                            required
+                        />
+                        <button type="button" class="btn-check" id="checkRecipientBtn" aria-label="Проверить получателя">Проверить</button>
+                    </div>
+                    <span class="field-error" id="err-recipient_telegram_id" aria-live="polite"></span>
                     <span class="label-hint">
                         Ваш личный Telegram ID или ID бота, который будет отправлять дайджесты
                     </span>
@@ -532,6 +594,119 @@
             }, 5000);
         }
         
+        const errUser = document.getElementById('err-user_telegram_id');
+        const groupUser = document.querySelector('.form-group[data-field="user_telegram_id"]');
+        const errChat = document.getElementById('err-telegram_chat_id');
+        const groupChat = document.querySelector('.form-group[data-field="telegram_chat_id"]');
+        const errRecipient = document.getElementById('err-recipient_telegram_id');
+        const groupRecipient = document.querySelector('.form-group[data-field="recipient_telegram_id"]');
+        const checkUserBtn = document.getElementById('checkUserBtn');
+        const checkChatBtn = document.getElementById('checkChatBtn');
+        const checkRecipientBtn = document.getElementById('checkRecipientBtn');
+        
+        async function checkUserAccess() {
+            const userId = document.getElementById('userTelegramId').value.trim();
+            if (!userId) {
+                errUser.textContent = 'Введите ваш Telegram ID и нажмите «Проверить».';
+                errUser.classList.remove('field-success');
+                if (groupUser) groupUser.classList.add('has-error');
+                return;
+            }
+            errUser.textContent = 'Проверка…';
+            errUser.classList.remove('field-success');
+            if (groupUser) groupUser.classList.remove('has-error');
+            if (checkUserBtn) { checkUserBtn.disabled = true; checkUserBtn.textContent = 'Проверка…'; }
+            try {
+                const r = await fetch('/api/check-recipient?recipient_id=' + encodeURIComponent(userId));
+                const data = await r.json();
+                if (data.available) {
+                    errUser.textContent = '✓ Пользователь с таким ID доступен';
+                    errUser.classList.add('field-success');
+                    if (groupUser) groupUser.classList.remove('has-error');
+                } else {
+                    errUser.textContent = data.message || 'Пользователь не найден. Проверьте ID (например через @userinfobot).';
+                    errUser.classList.remove('field-success');
+                    if (groupUser) groupUser.classList.add('has-error');
+                }
+            } catch (e) {
+                errUser.textContent = 'Не удалось проверить. Попробуйте позже.';
+                errUser.classList.remove('field-success');
+                if (groupUser) groupUser.classList.add('has-error');
+            } finally {
+                if (checkUserBtn) { checkUserBtn.disabled = false; checkUserBtn.textContent = 'Проверить'; }
+            }
+        }
+        
+        async function checkChatAccess() {
+            const chatId = document.getElementById('chatId').value.trim();
+            if (!chatId) {
+                errChat.textContent = 'Введите ID чата и нажмите «Проверить».';
+                errChat.classList.remove('field-success');
+                if (groupChat) groupChat.classList.add('has-error');
+                return;
+            }
+            errChat.textContent = 'Проверка доступа к чату…';
+            errChat.classList.remove('field-success');
+            if (groupChat) groupChat.classList.remove('has-error');
+            if (checkChatBtn) { checkChatBtn.disabled = true; checkChatBtn.textContent = 'Проверка…'; }
+            try {
+                const r = await fetch('/api/check-chat?chat_id=' + encodeURIComponent(chatId));
+                const data = await r.json();
+                if (data.available) {
+                    errChat.textContent = '✓ Чат доступен' + (data.name ? ': ' + data.name : '');
+                    errChat.classList.add('field-success');
+                    if (groupChat) groupChat.classList.remove('has-error');
+                } else {
+                    errChat.textContent = data.message || 'Чат недоступен. Добавьте систему в канал/группу или укажите другой ID.';
+                    errChat.classList.remove('field-success');
+                    if (groupChat) groupChat.classList.add('has-error');
+                }
+            } catch (e) {
+                errChat.textContent = 'Не удалось проверить чат. Попробуйте позже.';
+                errChat.classList.remove('field-success');
+                if (groupChat) groupChat.classList.add('has-error');
+            } finally {
+                if (checkChatBtn) { checkChatBtn.disabled = false; checkChatBtn.textContent = 'Проверить'; }
+            }
+        }
+        
+        async function checkRecipientAccess() {
+            const recipientId = document.getElementById('recipientId').value.trim();
+            if (!recipientId) {
+                errRecipient.textContent = 'Введите ID получателя и нажмите «Проверить».';
+                errRecipient.classList.remove('field-success');
+                if (groupRecipient) groupRecipient.classList.add('has-error');
+                return;
+            }
+            errRecipient.textContent = 'Проверка получателя…';
+            errRecipient.classList.remove('field-success');
+            if (groupRecipient) groupRecipient.classList.remove('has-error');
+            if (checkRecipientBtn) { checkRecipientBtn.disabled = true; checkRecipientBtn.textContent = 'Проверка…'; }
+            try {
+                const r = await fetch('/api/check-recipient?recipient_id=' + encodeURIComponent(recipientId));
+                const data = await r.json();
+                if (data.available) {
+                    errRecipient.textContent = '✓ Получатель доступен';
+                    errRecipient.classList.add('field-success');
+                    if (groupRecipient) groupRecipient.classList.remove('has-error');
+                } else {
+                    errRecipient.textContent = data.message || 'Получатель недоступен. Укажите другой ID.';
+                    errRecipient.classList.remove('field-success');
+                    if (groupRecipient) groupRecipient.classList.add('has-error');
+                }
+            } catch (e) {
+                errRecipient.textContent = 'Не удалось проверить получателя. Попробуйте позже.';
+                errRecipient.classList.remove('field-success');
+                if (groupRecipient) groupRecipient.classList.add('has-error');
+            } finally {
+                if (checkRecipientBtn) { checkRecipientBtn.disabled = false; checkRecipientBtn.textContent = 'Проверить'; }
+            }
+        }
+        
+        checkUserBtn.addEventListener('click', checkUserAccess);
+        checkChatBtn.addEventListener('click', checkChatAccess);
+        checkRecipientBtn.addEventListener('click', checkRecipientAccess);
+        
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -565,13 +740,18 @@
                 }
                 
                 // Затем добавляем канал
+                // Очищаем предыдущие ошибки по полям
+                document.querySelectorAll('.field-error').forEach(el => { el.textContent = ''; el.classList.remove('field-success'); });
+                document.querySelectorAll('.form-group.has-error').forEach(el => el.classList.remove('has-error'));
+
                 const formDataToSend = new FormData();
                 formDataToSend.append('user_telegram_id', userTelegramId);
-                Object.keys(data).forEach(key => {
-                    if (data[key] !== null) {
-                        formDataToSend.append(key, data[key]);
-                    }
-                });
+                formDataToSend.append('telegram_chat_id', formData.get('telegram_chat_id'));
+                formDataToSend.append('name', formData.get('name') || '');
+                formDataToSend.append('recipient_telegram_id', formData.get('recipient_telegram_id'));
+                formDataToSend.append('recipient_name', formData.get('recipient_name') || '');
+                formDataToSend.append('prompt_file', 'prompts/digest_management.md');
+                formDataToSend.append('poll_interval_minutes', '60');
                 
                 const response = await fetch('/api/channels', {
                     method: 'POST',
@@ -581,24 +761,31 @@
                 const result = await response.json();
                 
                 if (!response.ok) {
-                    throw new Error(result.detail || 'Ошибка добавления канала');
+                    if (result.errors && Array.isArray(result.errors)) {
+                        showAlert(result.message || 'Исправьте указанные значения и отправьте форму снова.', 'error');
+                        result.errors.forEach(function(err) {
+                            const el = document.getElementById('err-' + err.field);
+                            const group = document.querySelector('.form-group[data-field="' + err.field + '"]');
+                            if (el) { el.textContent = err.message; el.classList.remove('field-success'); }
+                            if (group) { group.classList.add('has-error'); }
+                        });
+                    } else {
+                        const msg = Array.isArray(result.detail) 
+                            ? result.detail.map(function(d) { return d.msg || JSON.stringify(d); }).join(' ')
+                            : (result.detail || result.message || 'Ошибка добавления канала');
+                        showAlert('✗ ' + msg, 'error');
+                    }
+                    return;
                 }
                 
-                // Показываем сообщение с предупреждением если требуется настройка
-                if (result.bot_required && result.setup_instructions) {
-                    const alertMsg = `${result.message}\n\n${result.setup_instructions}`;
-                    showAlert(alertMsg, 'success');
-                } else {
-                    showAlert(`✓ ${result.message}`, 'success');
-                }
-                
+                showAlert('✓ ' + result.message, 'success');
                 form.reset();
-                
-                // Обновляем ссылку на список каналов
+                document.querySelectorAll('.field-error').forEach(el => { el.textContent = ''; el.classList.remove('field-success'); });
+                document.querySelectorAll('.form-group.has-error').forEach(el => el.classList.remove('has-error'));
                 channelsLink.href = `/channels?user_telegram_id=${userTelegramId}`;
                 
             } catch (error) {
-                showAlert(`✗ Ошибка: ${error.message}`, 'error');
+                showAlert('✗ Ошибка: ' + error.message, 'error');
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<span class="material-icons" style="font-size: 18px;">add</span> Добавить канал';

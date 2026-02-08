@@ -1,0 +1,80 @@
+# ==============================================================================
+# Деплой с существующими данными: БД, промпты, конфиг, сессия Telethon
+# ==============================================================================
+# Использование:
+#   docker compose -f docker-compose.yml -f docker-compose.existing.yml up -d
+# Или: ./deploy.sh --existing
+#
+# В .env обязательно:
+#   PGHOST=хост существующей БД (например host.docker.internal или IP)
+#   PGPORT, PGDATABASE, PGUSER, PGPASSWORD
+# Опционально:
+#   EXISTING_DATA_DIR=./data   — каталог с worker_data (session), logs, media
+#   EXISTING_PROMPTS_DIR=../prompts
+#   EXISTING_CONFIG_DIR=../config
+# ==============================================================================
+
+version: "3.8"
+
+services:
+  postgres:
+    profiles:
+      - with-postgres
+
+  migrate:
+    depends_on: {}
+    environment:
+      PGHOST: ${PGHOST}
+      PGPORT: ${PGPORT:-5432}
+      PGDATABASE: ${PGDATABASE:-tg_digest}
+      PGUSER: ${PGUSER:-tg_digest}
+      PGPASSWORD: ${PGPASSWORD}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web:
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PGHOST: ${PGHOST}
+      PGPORT: ${PGPORT:-5432}
+      PGDATABASE: ${PGDATABASE:-tg_digest}
+      PGUSER: ${PGUSER:-tg_digest}
+      PGPASSWORD: ${PGPASSWORD}
+    volumes:
+      - ${EXISTING_PROMPTS_DIR:-../prompts}:/app/prompts:ro
+      - ${EXISTING_DATA_DIR:-./data}/worker_data:/app/data:ro
+      - ..:/app/repo:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  worker:
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PGHOST: ${PGHOST}
+      PGPORT: ${PGPORT:-5432}
+      PGDATABASE: ${PGDATABASE:-tg_digest}
+      PGUSER: ${PGUSER:-tg_digest}
+      PGPASSWORD: ${PGPASSWORD}
+    volumes:
+      - ${EXISTING_CONFIG_DIR:-../config}:/app/config:ro
+      - ${EXISTING_PROMPTS_DIR:-../prompts}:/app/prompts:ro
+      - ..:/app/repo:rw
+      - ${EXISTING_DATA_DIR:-./data}/worker_data:/app/data
+      - ${EXISTING_DATA_DIR:-./data}/logs:/app/logs
+      - ${EXISTING_DATA_DIR:-./data}/media:/app/media
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  auth:
+    environment:
+      TG_API_ID: ${TG_API_ID}
+      TG_API_HASH: ${TG_API_HASH}
+      TG_SESSION_FILE: /app/data/telethon.session
+    volumes:
+      - ${EXISTING_DATA_DIR:-./data}/worker_data:/app/data
+    profiles:
+      - tools

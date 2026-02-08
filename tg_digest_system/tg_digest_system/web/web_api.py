@@ -1,13 +1,31 @@
 #!/usr/bin/env python3
 """
 web_api.py — FastAPI веб-приложение для управления каналами
+Секреты и ключи API загружаются из secrets.env (см. secrets.env.example).
 """
 
 import os
 import json
+from pathlib import Path
+
+# Загрузка секретов из secrets.env (доступно в корне репо и в docker/)
+for _path in (
+    os.environ.get("SECRETS_ENV"),
+    Path(__file__).resolve().parent.parent / "docker" / "secrets.env",
+    Path(__file__).resolve().parent.parent / "secrets.env",
+    Path.cwd() / "secrets.env",
+    Path.cwd() / "docker" / "secrets.env",
+):
+    if _path and Path(_path).exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(_path, override=False)
+            break
+        except ImportError:
+            break
+
 import logging
 import asyncio
-from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
 
@@ -17,7 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, Json
 
 # Настройка логирования
 logging.basicConfig(
@@ -104,17 +122,19 @@ def get_or_create_user(conn, telegram_id: int, name: Optional[str] = None) -> in
         return user_id
 
 
-async def check_chat_access(chat_id: int) -> tuple[bool, Optional[str], Optional[str]]:
+async def check_chat_access(chat_id: int) -> tuple[bool, Optional[str], Optional[str], Optional[str]]:
     """
-    Проверяет доступ к чату через системную Telethon сессию.
-    Возвращает (доступ_есть, peer_type, название)
-    
-    На первом этапе поддерживаются только чаты где система присутствует.
+    Проверяет наличие и доступ к чату/каналу через системную Telethon сессию.
+    Возвращает (доступ_есть, peer_type, название, сообщение_об_ошибке).
+    Система должна быть участником чата/канала.
     """
     try:
         from telethon import TelegramClient
-        from telethon.tl.types import Channel, Chat
-        from telethon.errors import UsernameNotOccupiedError, ChannelPrivateError
+        from telethon.tl.types import Channel, Chat, User
+        from telethon.errors import (
+            UsernameNotOccupiedError, ChannelPrivateError,
+            ChannelInvalidError, ChatIdInvalidError, PeerIdInvalidError,
+        )
         
         api_id = int(os.environ.get("TG_API_ID", "0"))
         api_hash = os.environ.get("TG_API_HASH", "")
@@ -122,12 +142,19 @@ async def check_chat_access(chat_id: int) -> tuple[bool, Optional[str], Optional
         
         if not api_id or not api_hash or not session_file:
             logger.error("Telegram credentials не настроены")
-            return False, None, None
+            return False, None, None, "Сервис не настроен для проверки Telegram. Обратитесь к администратору."
         
         client = TelegramClient(session_file, api_id, api_hash)
         await client.start()
         try:
             entity = await client.get_entity(chat_id)
+            
+            if isinstance(entity, User):
+                await client.disconnect()
+                return False, None, None, (
+                    f"ID {chat_id} принадлежит пользователю, а не чату/каналу. "
+                    "Укажите ID канала (отрицательное число, например -1001234567890) или ID группы."
+                )
             
             if isinstance(entity, Channel):
                 peer_type = "channel" if entity.broadcast else "group"
@@ -139,19 +166,88 @@ async def check_chat_access(chat_id: int) -> tuple[bool, Optional[str], Optional
             name = getattr(entity, 'title', None) or getattr(entity, 'first_name', 'Unknown')
             await client.disconnect()
             logger.info(f"Доступ к чату {chat_id} ({name}) подтверждён")
-            return True, peer_type, name
+            return True, peer_type, name, None
             
-        except (UsernameNotOccupiedError, ChannelPrivateError, ValueError) as e:
-            logger.warning(f"Нет доступа к чату {chat_id}: {e}")
+        except ChannelPrivateError:
             await client.disconnect()
-            return False, None, None
+            return False, None, None, (
+                f"Канал/чат с ID {chat_id} приватный. "
+                "Добавьте аккаунт системы в участники канала или группы и повторите попытку."
+            )
+        except (UsernameNotOccupiedError, ChannelInvalidError, ChatIdInvalidError, PeerIdInvalidError):
+            await client.disconnect()
+            return False, None, None, (
+                f"Чат или канал с ID {chat_id} не найден или недействителен. "
+                "Проверьте ID (для каналов — отрицательное число, для групп — положительное)."
+            )
+        except ValueError:
+            await client.disconnect()
+            return False, None, None, (
+                f"Некорректный ID чата: {chat_id}. "
+                "Укажите числовой ID канала или группы (например -1001234567890 или 5228538198)."
+            )
         except Exception as e:
-            logger.error(f"Ошибка проверки доступа к чату {chat_id}: {e}")
+            logger.exception(f"Ошибка проверки доступа к чату {chat_id}: {e}")
             await client.disconnect()
-            return False, None, None
+            return False, None, None, (
+                f"Не удалось проверить доступ к чату {chat_id}. "
+                "Убедитесь, что система добавлена в этот чат/канал как участник."
+            )
     except Exception as e:
-        logger.error(f"Ошибка инициализации Telethon: {e}")
-        return False, None, None
+        logger.exception(f"Ошибка инициализации Telethon: {e}")
+        return False, None, None, "Сервис проверки Telegram временно недоступен. Попробуйте позже."
+
+
+async def check_recipient_access(recipient_id: int) -> tuple[bool, Optional[str]]:
+    """
+    Проверяет, что получатель дайджестов (пользователь или чат) существует и доступен для системы.
+    Возвращает (успех, сообщение_об_ошибке).
+    """
+    try:
+        from telethon import TelegramClient
+        from telethon.tl.types import User, Channel, Chat
+        from telethon.errors import (
+            PeerIdInvalidError, ChannelPrivateError, UserIdInvalidError,
+            ChannelInvalidError, ChatIdInvalidError,
+        )
+        
+        api_id = int(os.environ.get("TG_API_ID", "0"))
+        api_hash = os.environ.get("TG_API_HASH", "")
+        session_file = os.environ.get("TG_SESSION_FILE", "")
+        
+        if not api_id or not api_hash or not session_file:
+            return False, "Сервис не настроен для проверки Telegram."
+        
+        client = TelegramClient(session_file, api_id, api_hash)
+        await client.start()
+        try:
+            entity = await client.get_entity(recipient_id)
+            name = getattr(entity, 'title', None) or getattr(entity, 'first_name', None) or getattr(entity, 'username', None) or f"ID {recipient_id}"
+            await client.disconnect()
+            logger.info(f"Получатель {recipient_id} ({name}) доступен")
+            return True, None
+        except (PeerIdInvalidError, UserIdInvalidError, ChannelInvalidError, ChatIdInvalidError):
+            await client.disconnect()
+            return False, (
+                f"Получатель с ID {recipient_id} не найден. "
+                "Укажите ваш Telegram ID (узнать: @userinfobot) или ID чата/бота, куда присылать дайджесты."
+            )
+        except ChannelPrivateError:
+            await client.disconnect()
+            return False, (
+                f"Чат с ID {recipient_id} приватный и недоступен для системы. "
+                "Укажите личный ID пользователя или добавьте систему в чат."
+            )
+        except Exception as e:
+            logger.warning(f"Проверка получателя {recipient_id}: {e}")
+            await client.disconnect()
+            return False, (
+                f"Не удалось проверить получателя {recipient_id}. "
+                "Убедитесь, что ID указан верно (число, например 499412926)."
+            )
+    except Exception as e:
+        logger.exception(f"Ошибка проверки получателя: {e}")
+        return False, "Сервис проверки временно недоступен. Попробуйте позже."
 
 
 # API Endpoints
@@ -162,11 +258,18 @@ async def index(request: Request):
 
 
 @app.get("/channels", response_class=HTMLResponse)
-async def channels_page(request: Request, user_telegram_id: int = 499412926):
+async def channels_page(request: Request, user_telegram_id: Optional[int] = None):
     """Страница со списком каналов пользователя"""
+    if user_telegram_id is None:
+        uid_param = request.query_params.get("user_telegram_id")
+        if uid_param and uid_param.isdigit():
+            user_telegram_id = int(uid_param)
+        else:
+            remote = request.headers.get("X-Remote-User", "")
+            user_telegram_id = int(remote) if remote.isdigit() else None
     return templates.TemplateResponse("channels.html", {
         "request": request,
-        "user_telegram_id": user_telegram_id
+        "user_telegram_id": user_telegram_id or ""
     })
 
 
@@ -178,8 +281,93 @@ async def instructions_page(request: Request):
 
 @app.get("/prompts", response_class=HTMLResponse)
 async def prompts_page(request: Request):
-    """Страница редактирования промптов канала"""
-    return templates.TemplateResponse("prompts_v2.html", {"request": request})
+    """Библиотека промптов (по умолчанию) или редактор канала (если передан channel_id)."""
+    channel_id = request.query_params.get("channel_id")
+    remote_user = request.headers.get("X-Remote-User", "")
+    context = {"request": request, "remote_user": remote_user}
+    if channel_id:
+        return templates.TemplateResponse("prompts_v2.html", context)
+    return templates.TemplateResponse("prompts_library.html", context)
+
+
+@app.get("/api/check-chat", response_class=JSONResponse)
+async def api_check_chat(chat_id: str = Query(..., description="ID чата для проверки доступа")):
+    """
+    Проверяет наличие и доступность чата/канала для системы (по факту ввода).
+    Возвращает: available, peer_type, name, message.
+    """
+    try:
+        cid = int(chat_id.strip())
+    except (TypeError, ValueError):
+        return JSONResponse(
+            status_code=200,
+            content={
+                "available": False,
+                "peer_type": None,
+                "name": None,
+                "message": "ID чата должен быть числом (например: -1001234567890 или 5228538198)."
+            }
+        )
+    if cid == 0:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "available": False,
+                "peer_type": None,
+                "name": None,
+                "message": "ID чата не может быть нулём. Укажите ID канала (отрицательное число) или группы."
+            }
+        )
+    has_access, peer_type, name, err = await check_chat_access(cid)
+    if has_access:
+        return {
+            "available": True,
+            "peer_type": peer_type,
+            "name": name,
+            "message": None
+        }
+    return JSONResponse(
+        status_code=200,
+        content={
+            "available": False,
+            "peer_type": None,
+            "name": None,
+            "message": err or "Чат недоступен. Добавьте систему в канал/группу или укажите другой ID."
+        }
+    )
+
+
+@app.get("/api/check-recipient", response_class=JSONResponse)
+async def api_check_recipient(recipient_id: str = Query(..., description="ID получателя дайджестов")):
+    """
+    Проверяет доступность получателя для системы (по факту ввода).
+    Возвращает: available, message.
+    """
+    try:
+        rid = int(recipient_id.strip())
+    except (TypeError, ValueError):
+        return JSONResponse(
+            status_code=200,
+            content={
+                "available": False,
+                "message": "ID получателя должен быть числом (например: 499412926)."
+            }
+        )
+    if rid == 0:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "available": False,
+                "message": "ID получателя не может быть нулём. Укажите ваш ID или ID бота."
+            }
+        )
+    ok, err = await check_recipient_access(rid)
+    if ok:
+        return {"available": True, "message": None}
+    return JSONResponse(
+        status_code=200,
+        content={"available": False, "message": err or "Получатель недоступен. Укажите другой ID."}
+    )
 
 
 @app.post("/api/users", response_class=JSONResponse)
@@ -243,36 +431,111 @@ async def list_channels(user_telegram_id: int, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _validate_channel_params(
+    user_telegram_id: Optional[str],
+    telegram_chat_id: Optional[str],
+    recipient_telegram_id: Optional[str],
+) -> List[dict]:
+    """Проверка параметров добавления канала. Возвращает список ошибок [{field, message}]."""
+    errors = []
+    if not user_telegram_id or not str(user_telegram_id).strip():
+        errors.append({"field": "user_telegram_id", "message": "Укажите ваш Telegram ID (число). Узнать можно через @userinfobot."})
+    else:
+        try:
+            uid = int(user_telegram_id)
+            if uid == 0:
+                errors.append({"field": "user_telegram_id", "message": "Telegram ID не может быть нулём. Укажите ваш реальный ID."})
+        except (TypeError, ValueError):
+            errors.append({"field": "user_telegram_id", "message": "Telegram ID должен быть числом (например: 499412926)."})
+
+    if not telegram_chat_id or not str(telegram_chat_id).strip():
+        errors.append({"field": "telegram_chat_id", "message": "Укажите Telegram ID чата для мониторинга (канал или группа)."})
+    else:
+        try:
+            cid = int(telegram_chat_id)
+            if cid == 0:
+                errors.append({"field": "telegram_chat_id", "message": "ID чата не может быть нулём. Укажите ID канала (отрицательное число) или группы."})
+        except (TypeError, ValueError):
+            errors.append({"field": "telegram_chat_id", "message": "ID чата должен быть числом (например: -1001234567890 или 5228538198)."})
+
+    if not recipient_telegram_id or not str(recipient_telegram_id).strip():
+        errors.append({"field": "recipient_telegram_id", "message": "Укажите Telegram ID получателя дайджестов (куда присылать)."})
+    else:
+        try:
+            rid = int(recipient_telegram_id)
+            if rid == 0:
+                errors.append({"field": "recipient_telegram_id", "message": "ID получателя не может быть нулём. Укажите ваш ID или ID бота."})
+        except (TypeError, ValueError):
+            errors.append({"field": "recipient_telegram_id", "message": "ID получателя должен быть числом (например: 499412926)."})
+
+    return errors
+
+
 @app.post("/api/channels", response_class=JSONResponse)
 async def create_channel(
-    channel: ChannelCreate,
-    user_telegram_id: int = Form(...),
+    user_telegram_id: str = Form(..., description="Telegram ID пользователя"),
+    telegram_chat_id: str = Form(..., description="ID чата для мониторинга"),
+    name: Optional[str] = Form(None),
+    recipient_telegram_id: str = Form(..., description="ID получателя дайджестов"),
+    recipient_name: Optional[str] = Form(None),
+    prompt_file: str = Form("prompts/digest_management.md"),
+    poll_interval_minutes: int = Form(60),
     db=Depends(get_db)
 ):
-    """Добавляет новый канал для пользователя"""
+    """Добавляет новый канал для пользователя. Перед добавлением проверяет все параметры и доступность чата."""
+    # 1. Проверка формата и обязательности полей
+    validation_errors = _validate_channel_params(user_telegram_id, telegram_chat_id, recipient_telegram_id)
+    if validation_errors:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "errors": validation_errors, "message": "Исправьте указанные поля и отправьте форму снова."}
+        )
+
+    uid = int(user_telegram_id)
+    chat_id = int(telegram_chat_id)
+    recip_id = int(recipient_telegram_id)
+
     try:
-        # Получаем или создаём пользователя
-        user_id = get_or_create_user(db, user_telegram_id, None)
-        
-        # Проверяем доступ к чату (только через системную сессию)
-        has_access, peer_type, chat_name = await check_chat_access(channel.telegram_chat_id)
-        
+        # 2. Получаем или создаём пользователя
+        user_id = get_or_create_user(db, uid, None)
+
+        # 3. Проверяем наличие и доступ к чату для мониторинга
+        has_access, peer_type, chat_name, chat_err = await check_chat_access(chat_id)
+        errors = []
         if not has_access:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    f"Система не имеет доступа к чату {channel.telegram_chat_id}. "
-                    "В настоящее время система находится в стадии тестирования и поддерживает работу "
-                    "только с чатами, где она присутствует. Работа со сторонними ресурсами пока не поддерживается."
+            errors.append({
+                "field": "telegram_chat_id",
+                "message": chat_err or (
+                    f"Система не имеет доступа к чату с ID {chat_id}. "
+                    "Добавьте аккаунт системы в канал/группу или укажите другой ID чата."
                 )
+            })
+
+        # 4. Проверяем доступность получателя дайджестов
+        recip_ok, recip_err = await check_recipient_access(recip_id)
+        if not recip_ok:
+            errors.append({
+                "field": "recipient_telegram_id",
+                "message": recip_err or (
+                    f"Получатель с ID {recip_id} недоступен. "
+                    "Укажите ваш Telegram ID или ID чата/бота, куда отправлять дайджесты."
+                )
+            })
+
+        if errors:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "errors": errors,
+                    "message": "Исправьте указанные поля и отправьте форму снова."
+                }
             )
-        
-        # Если доступ есть - всё готово
+
+        # Оба проверки пройдены — создаём канал
         access_method = "system_session"
         access_status = "available"
-        
-        # Используем название из проверки или переданное
-        final_name = channel.name or chat_name or f"Chat {channel.telegram_chat_id}"
+        final_name = (name or "").strip() or chat_name or f"Chat {chat_id}"
         
         # Формируем путь к сводному документу
         doc_name = final_name.lower().replace(' ', '_').replace('/', '_')
@@ -291,22 +554,43 @@ async def create_channel(
                 RETURNING id
             """, (
                 user_id,
-                channel.telegram_chat_id,
+                chat_id,
                 final_name,
-                f"Добавлен через веб-интерфейс",
+                "Добавлен через веб-интерфейс",
                 peer_type,
-                channel.prompt_file,
+                prompt_file,
                 consolidated_doc_path,
                 "prompts/consolidated_engineering.md",
-                channel.poll_interval_minutes,
+                poll_interval_minutes,
                 True,
-                channel.recipient_telegram_id,
-                channel.recipient_name or f"User {channel.recipient_telegram_id}",
+                recip_id,
+                (recipient_name or "").strip() or f"User {recip_id}",
                 access_method,
                 access_status
             ))
             
             channel_id = cur.fetchone()['id']
+            
+            # Сохраняем дефолтные промпты в channel_prompts (все данные в БД)
+            prompts_dir = Path(os.environ.get("PROMPTS_DIR", "/app/prompts"))
+            def _read_prompt_file(rel_path: str) -> str:
+                if not rel_path:
+                    return ""
+                p = prompts_dir / Path(rel_path).name
+                if p.exists():
+                    try:
+                        return p.read_text(encoding="utf-8")
+                    except Exception as e:
+                        logger.warning(f"Не удалось прочитать промпт из {p}: {e}")
+                return ""
+            digest_text = _read_prompt_file(prompt_file)
+            consolidated_text = _read_prompt_file("prompts/consolidated_engineering.md")
+            cur.execute("""
+                INSERT INTO channel_prompts (channel_id, user_id, prompt_type, name, text, is_default)
+                VALUES (%s, %s, 'digest', 'Промпт для дайджестов', %s, true),
+                       (%s, %s, 'consolidated', 'Промпт для сводного документа', %s, true)
+            """, (channel_id, user_id, digest_text, channel_id, user_id, consolidated_text))
+            
             db.commit()
         
         # Запускаем фоновую задачу загрузки истории
@@ -314,8 +598,6 @@ async def create_channel(
         # Здесь просто возвращаем успех, загрузка будет при следующем цикле воркера
         
         message = f"Канал {final_name} добавлен. История будет загружена автоматически."
-        if bot_required:
-            message += f"\n\n⚠️ Внимание: Для работы канала необходимо добавить бота в чат. См. инструкции в настройках канала."
         
         return {
             "success": True,
@@ -329,6 +611,80 @@ async def create_channel(
         raise
     except Exception as e:
         logger.error(f"Ошибка добавления канала: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ChannelUpdate(BaseModel):
+    """Обновление канала (только переданные поля)."""
+    name: Optional[str] = None
+    recipient_telegram_id: Optional[int] = None
+    recipient_name: Optional[str] = None
+
+
+@app.put("/api/channels/{channel_id}", response_class=JSONResponse)
+async def update_channel(
+    channel_id: int,
+    user_telegram_id: int,
+    name: Optional[str] = Form(None),
+    recipient_telegram_id: Optional[int] = Form(None),
+    recipient_name: Optional[str] = Form(None),
+    db=Depends(get_db)
+):
+    """Обновляет канал пользователя (название, получатель дайджестов)."""
+    try:
+        user_id = get_or_create_user(db, user_telegram_id, None)
+        if name == "":
+            name = None
+        if recipient_name == "":
+            recipient_name = None
+        
+        updates = []
+        params = []
+        if name is not None:
+            updates.append("name = %s")
+            params.append(name)
+        if recipient_telegram_id is not None:
+            updates.append("recipient_telegram_id = %s")
+            params.append(recipient_telegram_id)
+        if recipient_name is not None:
+            updates.append("recipient_name = %s")
+            params.append(recipient_name)
+        
+        if not updates:
+            raise HTTPException(status_code=400, detail="Не указаны поля для обновления")
+        
+        params.extend([channel_id, user_id])
+        
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(f"""
+                UPDATE web_channels 
+                SET {", ".join(updates)}, updated_at = now()
+                WHERE id = %s AND user_id = %s
+                RETURNING id, name, recipient_telegram_id, recipient_name
+            """, tuple(params))
+            
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Канал не найден")
+            
+            db.commit()
+        
+        return {
+            "success": True,
+            "message": "Канал обновлён",
+            "channel": {
+                "id": row["id"],
+                "name": row["name"],
+                "recipient_telegram_id": row["recipient_telegram_id"],
+                "recipient_name": row["recipient_name"],
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка обновления канала: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -447,6 +803,132 @@ async def get_consolidated_document(channel_id: int, user_telegram_id: int, db=D
         raise
     except Exception as e:
         logger.error(f"Ошибка получения документа: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/prompts-library", response_class=JSONResponse)
+async def get_prompts_library(user_telegram_id: int, db=Depends(get_db)):
+    """Возвращает все каналы пользователя с их промптами (библиотека промптов)."""
+    try:
+        user_id = get_or_create_user(db, user_telegram_id, None)
+        
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, name, telegram_chat_id
+                FROM web_channels
+                WHERE user_id = %s
+                ORDER BY name
+            """, (user_id,))
+            channels = cur.fetchall()
+            
+            result = []
+            for ch in channels:
+                cur.execute("""
+                    SELECT id, prompt_type, name, substring("text" from 1 for 200) as text_preview, is_default, created_at
+                    FROM channel_prompts
+                    WHERE channel_id = %s
+                    ORDER BY prompt_type, is_default DESC, created_at
+                """, (ch['id'],))
+                prompts = cur.fetchall()
+                digest_prompts = [p for p in prompts if p['prompt_type'] == 'digest']
+                consolidated_prompts = [p for p in prompts if p['prompt_type'] == 'consolidated']
+                result.append({
+                    "id": ch['id'],
+                    "name": ch['name'],
+                    "telegram_chat_id": ch['telegram_chat_id'],
+                    "prompts": {
+                        "digest": [{"id": p["id"], "name": p["name"], "text_preview": (p["text_preview"] or "")[:150], "is_default": p["is_default"]} for p in digest_prompts],
+                        "consolidated": [{"id": p["id"], "name": p["name"], "text_preview": (p["text_preview"] or "")[:150], "is_default": p["is_default"]} for p in consolidated_prompts],
+                    }
+                })
+            
+            return {"channels": result}
+    except Exception as e:
+        logger.error(f"Ошибка получения библиотеки промптов: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/prompt-library/templates", response_class=JSONResponse)
+async def get_prompt_library_templates(prompt_type: Optional[str] = None, db=Depends(get_db)):
+    """Возвращает шаблоны промптов из таблицы prompt_library (библиотека в БД)."""
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            if prompt_type:
+                cur.execute("""
+                    SELECT id, name, prompt_type, file_path, body, created_at, updated_at
+                    FROM prompt_library
+                    WHERE prompt_type = %s
+                    ORDER BY name
+                """, (prompt_type,))
+            else:
+                cur.execute("""
+                    SELECT id, name, prompt_type, file_path, body, created_at, updated_at
+                    FROM prompt_library
+                    ORDER BY prompt_type, name
+                """)
+            rows = cur.fetchall()
+            result = []
+            for r in rows:
+                result.append({
+                    "id": r["id"],
+                    "name": r["name"],
+                    "prompt_type": r["prompt_type"],
+                    "file_path": r.get("file_path"),
+                    "body": r.get("body") or "",
+                    "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+                    "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
+                })
+            return {"templates": result}
+    except psycopg2.ProgrammingError as e:
+        if "does not exist" in str(e).lower() or "relation" in str(e).lower():
+            return {"templates": [], "message": "Таблица prompt_library не найдена. Выполните миграцию 005_prompt_library.sql."}
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка получения шаблонов из prompt_library: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/prompt-library/sync", response_class=JSONResponse)
+async def sync_prompt_library(db=Depends(get_db)):
+    """Синхронизирует шаблоны из папки PROMPTS_DIR в таблицу prompt_library."""
+    prompts_dir = Path(os.environ.get("PROMPTS_DIR", "/app/prompts"))
+    if not prompts_dir.exists():
+        raise HTTPException(status_code=400, detail=f"Папка промптов не найдена: {prompts_dir}")
+    synced = []
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            for ext in ("*.md", "*.txt"):
+                for p in prompts_dir.glob(ext):
+                    rel = f"prompts/{p.name}"
+                    try:
+                        body = p.read_text(encoding="utf-8")
+                    except Exception as e:
+                        logger.warning(f"Не удалось прочитать {p}: {e}")
+                        continue
+                    prompt_type = "consolidated" if "consolidated" in p.name.lower() else "digest"
+                    name = p.stem.replace("_", " ").replace("-", " ").title()
+                    cur.execute("""
+                        INSERT INTO prompt_library (name, prompt_type, file_path, body)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (file_path) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            prompt_type = EXCLUDED.prompt_type,
+                            body = EXCLUDED.body,
+                            updated_at = now()
+                    """, (name, prompt_type, rel, body))
+                    synced.append({"file_path": rel, "name": name, "prompt_type": prompt_type})
+        db.commit()
+        return {"synced": len(synced), "templates": synced}
+    except psycopg2.ProgrammingError as e:
+        if "does not exist" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Таблица prompt_library не найдена. Выполните миграцию 005_prompt_library.sql."
+            )
+        raise
+    except Exception as e:
+        logger.exception(f"Ошибка синхронизации prompt_library: {e}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -717,6 +1199,77 @@ async def delete_channel_prompt(
         raise
     except Exception as e:
         logger.error(f"Ошибка удаления промпта: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# -----------------------------------------------------------------------------
+# Настройки в БД (entity_settings) — чаты, боты, пользователи, система
+# -----------------------------------------------------------------------------
+@app.get("/api/settings", response_class=JSONResponse)
+async def get_entity_settings(
+    entity_type: str,
+    entity_id: int = 0,
+    key: Optional[str] = None,
+    user_telegram_id: Optional[int] = None,
+    db=Depends(get_db)
+):
+    """Возвращает настройки сущности (user, channel, bot, system) из БД."""
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            if key:
+                cur.execute("""
+                    SELECT id, entity_type, entity_id, key, value, updated_at
+                    FROM entity_settings
+                    WHERE entity_type = %s AND entity_id = %s AND key = %s
+                """, (entity_type, entity_id, key))
+            else:
+                cur.execute("""
+                    SELECT id, entity_type, entity_id, key, value, updated_at
+                    FROM entity_settings
+                    WHERE entity_type = %s AND entity_id = %s
+                    ORDER BY key
+                """, (entity_type, entity_id,))
+            rows = cur.fetchall()
+        out = [{"id": r["id"], "key": r["key"], "value": r["value"], "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None} for r in rows]
+        if key and out:
+            return out[0]
+        return {"settings": out}
+    except psycopg2.ProgrammingError as e:
+        if "does not exist" in str(e).lower():
+            return {"settings": []}
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка получения настроек: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class EntitySettingUpdate(BaseModel):
+    entity_type: str
+    entity_id: int = 0
+    key: str
+    value: Optional[dict] = None
+
+
+@app.put("/api/settings", response_class=JSONResponse)
+async def set_entity_setting(body: EntitySettingUpdate, db=Depends(get_db)):
+    """Записывает настройку сущности в БД (чаты, боты, пользователи, system)."""
+    val = body.value if body.value is not None else {}
+    try:
+        with db.cursor() as cur:
+            cur.execute("""
+                INSERT INTO entity_settings (entity_type, entity_id, key, value)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (entity_type, entity_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+            """, (body.entity_type, body.entity_id, body.key, Json(val)))
+        db.commit()
+        return {"success": True, "entity_type": body.entity_type, "entity_id": body.entity_id, "key": body.key}
+    except psycopg2.ProgrammingError as e:
+        if "does not exist" in str(e).lower():
+            raise HTTPException(status_code=400, detail="Выполните миграцию 006_entity_settings_and_bots.sql.")
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка записи настройки: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 config.py — Загрузка и валидация конфигурации
+Секреты загружаются из secrets.env (см. docker/secrets.env.example).
 """
 
 import os
@@ -9,6 +10,21 @@ import logging
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
+
+# Загрузка секретов из secrets.env при локальном запуске скриптов
+for _p in (
+    Path(__file__).resolve().parent.parent / "docker" / "secrets.env",
+    Path(__file__).resolve().parent.parent / "secrets.env",
+    Path.cwd() / "secrets.env",
+    Path.cwd() / "docker" / "secrets.env",
+):
+    if _p.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(_p, override=False)
+            break
+        except ImportError:
+            break
 
 logger = logging.getLogger(__name__)
 
