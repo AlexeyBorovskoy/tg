@@ -6,7 +6,9 @@ web_api.py — FastAPI веб-приложение для управления �
 
 import os
 import json
+import secrets
 from pathlib import Path
+from urllib.parse import quote
 
 # Загрузка секретов из secrets.env (доступно в корне репо и в docker/)
 for _path in (
@@ -29,8 +31,8 @@ import asyncio
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Depends, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Depends, Request, Form, Header
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -56,6 +58,107 @@ TEMPLATES_DIR.mkdir(exist_ok=True)
 STATIC_DIR.mkdir(exist_ok=True)
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Интеграция: своя авторизация (OAuth + JWT) или внешний auth-сервис
+try:
+    from auth_own import (
+        AUTH_OWN_ENABLED,
+        AuthUser,
+        create_access_token,
+        verify_access_token,
+        get_google_authorize_url,
+        get_yandex_authorize_url,
+        exchange_google_code,
+        exchange_yandex_code,
+        token_from_header as auth_own_token_from_header,
+        GOOGLE_CLIENT_ID,
+        YANDEX_CLIENT_ID,
+    )
+except ImportError:
+    AUTH_OWN_ENABLED = False
+    AuthUser = None
+    create_access_token = None
+    verify_access_token = None
+    get_google_authorize_url = None
+    get_yandex_authorize_url = None
+    exchange_google_code = None
+    exchange_yandex_code = None
+    auth_own_token_from_header = None
+    GOOGLE_CLIENT_ID = ""
+    YANDEX_CLIENT_ID = ""
+
+try:
+    from auth_client import (
+        AUTH_CHECK_ENABLED,
+        AUTH_SERVICE_URL,
+        check_token as auth_check_token,
+        token_from_header as auth_token_from_header,
+        login as auth_login,
+    )
+except ImportError:
+    AUTH_CHECK_ENABLED = False
+    AUTH_SERVICE_URL = ""
+    auth_check_token = None
+    auth_token_from_header = None
+    auth_login = None
+
+# Включена ли какая-либо проверка авторизации
+AUTH_REQUIRED = AUTH_OWN_ENABLED or (AUTH_CHECK_ENABLED and AUTH_SERVICE_URL)
+
+# Имя cookie с access_token
+AUTH_COOKIE_NAME = "auth_token"
+
+
+def _is_api_request(request: Request) -> bool:
+    return request.url.path.startswith("/api/") or "application/json" in (request.headers.get("accept") or "")
+
+
+async def get_current_auth_user(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Если включена наша авторизация (OAuth + JWT) — проверяет наш токен и возвращает AuthUser.
+    Иначе если включён внешний auth — проверяет через auth-сервис и возвращает email (str).
+    Иначе возвращает None. Для HTML без токена — RedirectResponse на /login.
+    """
+    if not AUTH_REQUIRED:
+        return None
+    token = None
+    if authorization:
+        if auth_own_token_from_header:
+            token = auth_own_token_from_header(authorization)
+        if not token and auth_token_from_header:
+            token = auth_token_from_header(authorization)
+    if not token and request.cookies:
+        token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not token:
+        if _is_api_request(request):
+            raise HTTPException(status_code=401, detail="Требуется авторизация")
+        next_path = request.url.path
+        if request.query_params:
+            next_path = next_path + "?" + str(request.query_params)
+        return RedirectResponse(url=f"/login?next={quote(next_path, safe='')}", status_code=302)
+
+    # Сначала проверяем наш JWT
+    if AUTH_OWN_ENABLED and verify_access_token and token:
+        auth_user = verify_access_token(token)
+        if auth_user:
+            return auth_user
+        if AUTH_OWN_ENABLED and not AUTH_CHECK_ENABLED:
+            if _is_api_request(request):
+                raise HTTPException(status_code=401, detail="Недействительный токен")
+            return RedirectResponse(url="/login?next=" + quote(request.url.path, safe=""), status_code=302)
+
+    # Внешний auth-сервис
+    if AUTH_CHECK_ENABLED and AUTH_SERVICE_URL and auth_check_token:
+        allowed, username = await auth_check_token(token, request.url.path)
+        if allowed and username:
+            return username
+    if _is_api_request(request):
+        raise HTTPException(status_code=401, detail="Недействительный токен или доступ запрещён")
+    return RedirectResponse(url="/login?next=" + quote(request.url.path, safe=""), status_code=302)
+
 
 # Подключение к БД
 def get_db():
@@ -103,6 +206,83 @@ class UserCreate(BaseModel):
 
 
 # Вспомогательные функции
+def get_or_create_user_by_oauth(
+    conn,
+    provider: str,
+    external_id: str,
+    email: str,
+    display_name: Optional[str] = None,
+) -> int:
+    """По OAuth-провайдеру и external_id находит или создаёт пользователя. Возвращает user_id."""
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            "SELECT user_id FROM user_identities WHERE provider = %s AND external_id = %s",
+            (provider, external_id),
+        )
+        row = cur.fetchone()
+        if row:
+            return row["user_id"]
+        # Создаём пользователя (telegram_id = NULL для OAuth-only)
+        cur.execute(
+            """INSERT INTO users (telegram_id, name, email, is_active)
+               VALUES (NULL, %s, %s, true)
+               RETURNING id""",
+            (display_name or email, email or None),
+        )
+        user_id = cur.fetchone()["id"]
+        cur.execute(
+            """INSERT INTO user_identities (user_id, provider, external_id, email, display_name)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (user_id, provider, external_id, email or None, display_name),
+        )
+        conn.commit()
+        return user_id
+
+
+def _audit_user_id(current_user) -> Optional[int]:
+    """Из текущего пользователя (AuthUser или str) извлекает user_id для аудита."""
+    if current_user is None:
+        return None
+    return getattr(current_user, "user_id", None)
+
+
+def audit_log(
+    conn,
+    user_id: Optional[int],
+    action: str,
+    details: Optional[dict] = None,
+    request: Optional[Request] = None,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[str] = None,
+) -> None:
+    """Пишет запись в audit_log (кто и что делал)."""
+    try:
+        ip = None
+        user_agent = None
+        if request:
+            ip = request.client.host if request.client else None
+            user_agent = request.headers.get("user-agent")
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO audit_log (user_id, action, details, ip, user_agent, resource_type, resource_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    user_id,
+                    action,
+                    Json(details or {}),
+                    ip,
+                    user_agent,
+                    resource_type,
+                    resource_id,
+                ),
+            )
+        conn.commit()
+    except Exception as e:
+        logger.warning("audit_log failed: %s", e)
+        if conn:
+            conn.rollback()
+
+
 def get_or_create_user(conn, telegram_id: int, name: Optional[str] = None) -> int:
     """Получает или создаёт пользователя"""
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -252,13 +432,176 @@ async def check_recipient_access(recipient_id: int) -> tuple[bool, Optional[str]
 
 # API Endpoints
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(
+    request: Request,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+):
     """Главная страница с формой добавления чата"""
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, next_url: Optional[str] = None, error_msg: Optional[str] = None):
+    """Страница входа: OAuth (Google/Яндекс), auth-сервис (логин/пароль) или Telegram ID"""
+    next_url = next_url or request.query_params.get("next", "/")
+    if AUTH_OWN_ENABLED:
+        return templates.TemplateResponse("login_oauth.html", {
+            "request": request,
+            "next_url": next_url,
+            "next_encoded": quote(next_url, safe=""),
+            "error_msg": error_msg or request.query_params.get("error"),
+            "google_enabled": bool(GOOGLE_CLIENT_ID),
+            "yandex_enabled": bool(YANDEX_CLIENT_ID),
+        })
+    if AUTH_CHECK_ENABLED:
+        return templates.TemplateResponse("login_auth.html", {
+            "request": request,
+            "next_url": next_url,
+            "error_msg": error_msg or request.query_params.get("error"),
+        })
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_submit(
+    request: Request,
+    username: str = Form(default=""),
+    password: str = Form(default=""),
+    next_path: str = Form(default="/", alias="next"),
+    db=Depends(get_db),
+):
+    """Вход через auth-сервис (логин/пароль): установка cookie, редирект."""
+    if not AUTH_CHECK_ENABLED or not auth_login:
+        return RedirectResponse(url="/login", status_code=302)
+    if not username or not password:
+        return RedirectResponse(
+            url=f"/login?next={quote(next_path, safe='')}&error={quote('Введите логин и пароль', safe='')}",
+            status_code=302,
+        )
+    result = await auth_login(username, password)
+    if not result:
+        return RedirectResponse(
+            url=f"/login?next={quote(next_path, safe='')}&error={quote('Неверный логин или пароль', safe='')}",
+            status_code=302,
+        )
+    access_token, _refresh = result
+    response = RedirectResponse(url=next_path if next_path.startswith("/") else "/", status_code=302)
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=access_token,
+        max_age=3600,
+        path="/",
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+# OAuth: редирект на провайдера
+@app.get("/auth/google")
+async def auth_google_redirect(request: Request):
+    """Редирект на Google OAuth."""
+    if not AUTH_OWN_ENABLED or not get_google_authorize_url:
+        raise HTTPException(status_code=404, detail="OAuth не настроен")
+    from auth_own import BASE_URL
+    next_path = request.query_params.get("next", "/")
+    state = secrets.token_urlsafe(32)
+    redirect_uri = f"{BASE_URL}/auth/google/callback"
+    url = get_google_authorize_url(state, redirect_uri)
+    response = RedirectResponse(url=url, status_code=302)
+    response.set_cookie("oauth_state", state, max_age=600, path="/", httponly=True, samesite="lax")
+    response.set_cookie("oauth_next", next_path, max_age=600, path="/", httponly=True, samesite="lax")
+    return response
+
+
+@app.get("/auth/google/callback")
+async def auth_google_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None, db=Depends(get_db)):
+    """Callback после входа через Google: обмен code на токен, создание/поиск пользователя, наш JWT, cookie."""
+    if not AUTH_OWN_ENABLED or not exchange_google_code or not create_access_token:
+        raise HTTPException(status_code=404, detail="OAuth не настроен")
+    state_cookie = request.cookies.get("oauth_state")
+    next_path = request.cookies.get("oauth_next", "/")
+    if not state_cookie or state != state_cookie or not code:
+        return RedirectResponse(url=f"/login?error={quote('Ошибка входа через Google', safe='')}", status_code=302)
+    from auth_own import BASE_URL
+    redirect_uri = f"{BASE_URL}/auth/google/callback"
+    result = await exchange_google_code(code, redirect_uri)
+    if not result:
+        return RedirectResponse(url=f"/login?error={quote('Не удалось получить данные от Google', safe='')}", status_code=302)
+    external_id, email, display_name = result
+    user_id = get_or_create_user_by_oauth(db, "google", external_id, email, display_name)
+    token = create_access_token(user_id, email, display_name)
+    audit_log(db, user_id, "login", {"provider": "google", "email": email}, request)
+    response = RedirectResponse(url=next_path if next_path.startswith("/") else "/", status_code=302)
+    response.set_cookie(AUTH_COOKIE_NAME, token, max_age=3600, path="/", httponly=True, samesite="lax")
+    response.delete_cookie("oauth_state", path="/")
+    response.delete_cookie("oauth_next", path="/")
+    return response
+
+
+@app.get("/auth/yandex")
+async def auth_yandex_redirect(request: Request):
+    """Редирект на Yandex OAuth."""
+    if not AUTH_OWN_ENABLED or not get_yandex_authorize_url:
+        raise HTTPException(status_code=404, detail="OAuth не настроен")
+    from auth_own import BASE_URL
+    next_path = request.query_params.get("next", "/")
+    state = secrets.token_urlsafe(32)
+    redirect_uri = f"{BASE_URL}/auth/yandex/callback"
+    url = get_yandex_authorize_url(state, redirect_uri)
+    response = RedirectResponse(url=url, status_code=302)
+    response.set_cookie("oauth_state", state, max_age=600, path="/", httponly=True, samesite="lax")
+    response.set_cookie("oauth_next", next_path, max_age=600, path="/", httponly=True, samesite="lax")
+    return response
+
+
+@app.get("/auth/yandex/callback")
+async def auth_yandex_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None, db=Depends(get_db)):
+    """Callback после входа через Yandex."""
+    if not AUTH_OWN_ENABLED or not exchange_yandex_code or not create_access_token:
+        raise HTTPException(status_code=404, detail="OAuth не настроен")
+    state_cookie = request.cookies.get("oauth_state")
+    next_path = request.cookies.get("oauth_next", "/")
+    if not state_cookie or state != state_cookie or not code:
+        return RedirectResponse(url=f"/login?error={quote('Ошибка входа через Yandex', safe='')}", status_code=302)
+    from auth_own import BASE_URL
+    redirect_uri = f"{BASE_URL}/auth/yandex/callback"
+    result = await exchange_yandex_code(code, redirect_uri)
+    if not result:
+        return RedirectResponse(url=f"/login?error={quote('Не удалось получить данные от Yandex', safe='')}", status_code=302)
+    external_id, email, display_name = result
+    user_id = get_or_create_user_by_oauth(db, "yandex", external_id, email, display_name)
+    token = create_access_token(user_id, email, display_name)
+    audit_log(db, user_id, "login", {"provider": "yandex", "email": email}, request)
+    response = RedirectResponse(url=next_path if next_path.startswith("/") else "/", status_code=302)
+    response.set_cookie(AUTH_COOKIE_NAME, token, max_age=3600, path="/", httponly=True, samesite="lax")
+    response.delete_cookie("oauth_state", path="/")
+    response.delete_cookie("oauth_next", path="/")
+    return response
+
+
+@app.get("/logout")
+async def logout_page(request: Request, db=Depends(get_db)):
+    """Сброс cookie авторизации и редирект на главную. Аудит выхода — по cookie до удаления."""
+    user_id = None
+    token = request.cookies.get(AUTH_COOKIE_NAME)
+    if AUTH_OWN_ENABLED and verify_access_token and token:
+        au = verify_access_token(token)
+        if au:
+            user_id = au.user_id
+    if user_id is not None:
+        audit_log(db, user_id, "logout", {}, request)
+    response = RedirectResponse(url="/", status_code=302)
+    response.delete_cookie(AUTH_COOKIE_NAME, path="/")
+    return response
+
+
 @app.get("/channels", response_class=HTMLResponse)
-async def channels_page(request: Request, user_telegram_id: Optional[int] = None):
+async def channels_page(
+    request: Request,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    user_telegram_id: Optional[int] = None,
+):
     """Страница со списком каналов пользователя"""
     if user_telegram_id is None:
         uid_param = request.query_params.get("user_telegram_id")
@@ -274,13 +617,19 @@ async def channels_page(request: Request, user_telegram_id: Optional[int] = None
 
 
 @app.get("/instructions", response_class=HTMLResponse)
-async def instructions_page(request: Request):
+async def instructions_page(
+    request: Request,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+):
     """Страница с инструкциями для новых пользователей"""
     return templates.TemplateResponse("instructions.html", {"request": request})
 
 
 @app.get("/prompts", response_class=HTMLResponse)
-async def prompts_page(request: Request):
+async def prompts_page(
+    request: Request,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+):
     """Библиотека промптов (по умолчанию) или редактор канала (если передан channel_id)."""
     channel_id = request.query_params.get("channel_id")
     remote_user = request.headers.get("X-Remote-User", "")
@@ -371,7 +720,11 @@ async def api_check_recipient(recipient_id: str = Query(..., description="ID п�
 
 
 @app.post("/api/users", response_class=JSONResponse)
-async def create_user(user: UserCreate, db=Depends(get_db)):
+async def create_user(
+    user: UserCreate,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
     """Создаёт или получает пользователя"""
     try:
         user_id = get_or_create_user(db, user.telegram_id, user.name)
@@ -382,7 +735,11 @@ async def create_user(user: UserCreate, db=Depends(get_db)):
 
 
 @app.get("/api/channels", response_class=JSONResponse)
-async def list_channels(user_telegram_id: int, db=Depends(get_db)):
+async def list_channels(
+    user_telegram_id: int,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
     """Возвращает список каналов пользователя"""
     try:
         user_id = get_or_create_user(db, user_telegram_id, None)
@@ -473,6 +830,7 @@ def _validate_channel_params(
 
 @app.post("/api/channels", response_class=JSONResponse)
 async def create_channel(
+    request: Request,
     user_telegram_id: str = Form(..., description="Telegram ID пользователя"),
     telegram_chat_id: str = Form(..., description="ID чата для мониторинга"),
     name: Optional[str] = Form(None),
@@ -480,7 +838,8 @@ async def create_channel(
     recipient_name: Optional[str] = Form(None),
     prompt_file: str = Form("prompts/digest_management.md"),
     poll_interval_minutes: int = Form(60),
-    db=Depends(get_db)
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
 ):
     """Добавляет новый канал для пользователя. Перед добавлением проверяет все параметры и доступность чата."""
     # 1. Проверка формата и обязательности полей
@@ -593,10 +952,13 @@ async def create_channel(
             
             db.commit()
         
-        # Запускаем фоновую задачу загрузки истории
-        # В реальности это должно быть через Celery или подобное
-        # Здесь просто возвращаем успех, загрузка будет при следующем цикле воркера
+        audit_log(
+            db, _audit_user_id(current_user), "channel_created",
+            {"telegram_chat_id": chat_id, "name": final_name}, request,
+            "channel", str(channel_id),
+        )
         
+        # Запускаем фоновую задачу загрузки истории
         message = f"Канал {final_name} добавлен. История будет загружена автоматически."
         
         return {
@@ -624,12 +986,14 @@ class ChannelUpdate(BaseModel):
 
 @app.put("/api/channels/{channel_id}", response_class=JSONResponse)
 async def update_channel(
+    request: Request,
     channel_id: int,
     user_telegram_id: int,
     name: Optional[str] = Form(None),
     recipient_telegram_id: Optional[int] = Form(None),
     recipient_name: Optional[str] = Form(None),
-    db=Depends(get_db)
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
 ):
     """Обновляет канал пользователя (название, получатель дайджестов)."""
     try:
@@ -670,6 +1034,11 @@ async def update_channel(
             
             db.commit()
         
+        audit_log(
+            db, _audit_user_id(current_user), "channel_updated",
+            {"name": row["name"], "recipient_telegram_id": row["recipient_telegram_id"]}, request,
+            "channel", str(channel_id),
+        )
         return {
             "success": True,
             "message": "Канал обновлён",
@@ -690,7 +1059,13 @@ async def update_channel(
 
 
 @app.delete("/api/channels/{channel_id}", response_class=JSONResponse)
-async def delete_channel(channel_id: int, user_telegram_id: int, db=Depends(get_db)):
+async def delete_channel(
+    request: Request,
+    channel_id: int,
+    user_telegram_id: int,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
     """Удаляет канал пользователя"""
     try:
         user_id = get_or_create_user(db, user_telegram_id, None)
@@ -706,6 +1081,10 @@ async def delete_channel(channel_id: int, user_telegram_id: int, db=Depends(get_
             
             db.commit()
         
+        audit_log(
+            db, _audit_user_id(current_user), "channel_deleted",
+            {"channel_id": channel_id}, request, "channel", str(channel_id),
+        )
         return {"success": True, "message": "Канал удалён"}
         
     except HTTPException:
@@ -717,7 +1096,13 @@ async def delete_channel(channel_id: int, user_telegram_id: int, db=Depends(get_
 
 
 @app.get("/api/digests/{channel_id}", response_class=JSONResponse)
-async def get_digests(channel_id: int, user_telegram_id: int, limit: int = 10, db=Depends(get_db)):
+async def get_digests(
+    channel_id: int,
+    user_telegram_id: int,
+    limit: int = 10,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
     """Возвращает последние дайджесты канала"""
     try:
         user_id = get_or_create_user(db, user_telegram_id, None)
@@ -765,7 +1150,12 @@ async def get_digests(channel_id: int, user_telegram_id: int, limit: int = 10, d
 
 
 @app.get("/api/channels/{channel_id}/document", response_class=FileResponse)
-async def get_consolidated_document(channel_id: int, user_telegram_id: int, db=Depends(get_db)):
+async def get_consolidated_document(
+    channel_id: int,
+    user_telegram_id: int,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
     """Возвращает сводный инженерный документ канала"""
     try:
         user_id = get_or_create_user(db, user_telegram_id, None)
@@ -807,7 +1197,11 @@ async def get_consolidated_document(channel_id: int, user_telegram_id: int, db=D
 
 
 @app.get("/api/prompts-library", response_class=JSONResponse)
-async def get_prompts_library(user_telegram_id: int, db=Depends(get_db)):
+async def get_prompts_library(
+    user_telegram_id: int,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
     """Возвращает все каналы пользователя с их промптами (библиотека промптов)."""
     try:
         user_id = get_or_create_user(db, user_telegram_id, None)
@@ -849,7 +1243,11 @@ async def get_prompts_library(user_telegram_id: int, db=Depends(get_db)):
 
 
 @app.get("/api/prompt-library/templates", response_class=JSONResponse)
-async def get_prompt_library_templates(prompt_type: Optional[str] = None, db=Depends(get_db)):
+async def get_prompt_library_templates(
+    prompt_type: Optional[str] = None,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
     """Возвращает шаблоны промптов из таблицы prompt_library (библиотека в БД)."""
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
@@ -889,7 +1287,10 @@ async def get_prompt_library_templates(prompt_type: Optional[str] = None, db=Dep
 
 
 @app.post("/api/prompt-library/sync", response_class=JSONResponse)
-async def sync_prompt_library(db=Depends(get_db)):
+async def sync_prompt_library(
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
     """Синхронизирует шаблоны из папки PROMPTS_DIR в таблицу prompt_library."""
     prompts_dir = Path(os.environ.get("PROMPTS_DIR", "/app/prompts"))
     if not prompts_dir.exists():
@@ -933,7 +1334,13 @@ async def sync_prompt_library(db=Depends(get_db)):
 
 
 @app.get("/api/channels/{channel_id}/prompts", response_class=JSONResponse)
-async def get_channel_prompts(channel_id: int, user_telegram_id: int, prompt_type: Optional[str] = None, db=Depends(get_db)):
+async def get_channel_prompts(
+    channel_id: int,
+    user_telegram_id: int,
+    prompt_type: Optional[str] = None,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
     """Возвращает промпты канала для редактирования"""
     try:
         user_id = get_or_create_user(db, user_telegram_id, None)
@@ -1036,13 +1443,15 @@ async def get_channel_prompts(channel_id: int, user_telegram_id: int, prompt_typ
 
 @app.post("/api/channels/{channel_id}/prompts", response_class=JSONResponse)
 async def create_channel_prompt(
+    request: Request,
     channel_id: int,
     user_telegram_id: int = Form(...),
     prompt_type: str = Form(...),
     name: str = Form(...),
     text: str = Form(...),
     is_default: bool = Form(False),
-    db=Depends(get_db)
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
 ):
     """Создаёт новый промпт для канала"""
     try:
@@ -1079,6 +1488,11 @@ async def create_channel_prompt(
             prompt_id = cur.fetchone()['id']
             db.commit()
         
+        audit_log(
+            db, _audit_user_id(current_user), "prompt_created",
+            {"channel_id": channel_id, "prompt_type": prompt_type}, request,
+            "prompt", str(prompt_id),
+        )
         return {"success": True, "prompt_id": prompt_id, "message": "Промпт создан"}
         
     except HTTPException:
@@ -1091,13 +1505,15 @@ async def create_channel_prompt(
 
 @app.put("/api/channels/{channel_id}/prompts/{prompt_id}", response_class=JSONResponse)
 async def update_channel_prompt(
+    request: Request,
     channel_id: int,
     prompt_id: int,
     user_telegram_id: int = Form(...),
     name: Optional[str] = Form(None),
     text: Optional[str] = Form(None),
     is_default: Optional[bool] = Form(None),
-    db=Depends(get_db)
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
 ):
     """Обновляет промпт канала"""
     try:
@@ -1156,6 +1572,11 @@ async def update_channel_prompt(
                 
                 db.commit()
         
+        audit_log(
+            db, _audit_user_id(current_user), "prompt_updated",
+            {"channel_id": channel_id, "prompt_id": prompt_id}, request,
+            "prompt", str(prompt_id),
+        )
         return {"success": True, "message": "Промпт обновлён"}
         
     except HTTPException:
@@ -1168,10 +1589,12 @@ async def update_channel_prompt(
 
 @app.delete("/api/channels/{channel_id}/prompts/{prompt_id}", response_class=JSONResponse)
 async def delete_channel_prompt(
+    request: Request,
     channel_id: int,
     prompt_id: int,
     user_telegram_id: int,
-    db=Depends(get_db)
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
 ):
     """Удаляет промпт канала"""
     try:
@@ -1193,6 +1616,11 @@ async def delete_channel_prompt(
             
             db.commit()
         
+        audit_log(
+            db, _audit_user_id(current_user), "prompt_deleted",
+            {"channel_id": channel_id, "prompt_id": prompt_id}, request,
+            "prompt", str(prompt_id),
+        )
         return {"success": True, "message": "Промпт удалён"}
         
     except HTTPException:
@@ -1212,7 +1640,8 @@ async def get_entity_settings(
     entity_id: int = 0,
     key: Optional[str] = None,
     user_telegram_id: Optional[int] = None,
-    db=Depends(get_db)
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
 ):
     """Возвращает настройки сущности (user, channel, bot, system) из БД."""
     try:
@@ -1252,7 +1681,12 @@ class EntitySettingUpdate(BaseModel):
 
 
 @app.put("/api/settings", response_class=JSONResponse)
-async def set_entity_setting(body: EntitySettingUpdate, db=Depends(get_db)):
+async def set_entity_setting(
+    request: Request,
+    body: EntitySettingUpdate,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
     """Записывает настройку сущности в БД (чаты, боты, пользователи, system)."""
     val = body.value if body.value is not None else {}
     try:
@@ -1263,6 +1697,11 @@ async def set_entity_setting(body: EntitySettingUpdate, db=Depends(get_db)):
                 ON CONFLICT (entity_type, entity_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
             """, (body.entity_type, body.entity_id, body.key, Json(val)))
         db.commit()
+        audit_log(
+            db, _audit_user_id(current_user), "settings_updated",
+            {"entity_type": body.entity_type, "entity_id": body.entity_id, "key": body.key}, request,
+            "settings", f"{body.entity_type}:{body.entity_id}:{body.key}",
+        )
         return {"success": True, "entity_type": body.entity_type, "entity_id": body.entity_id, "key": body.key}
     except psycopg2.ProgrammingError as e:
         if "does not exist" in str(e).lower():

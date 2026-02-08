@@ -58,7 +58,8 @@ services:
       set -e;
       for f in /migrations/001_add_user_id.sql /migrations/002_add_user_sessions.sql
                /migrations/003_add_prompt_texts.sql /migrations/004_add_prompts_table.sql
-               /migrations/005_prompt_library.sql /migrations/006_entity_settings_and_bots.sql; do
+               /migrations/005_prompt_library.sql /migrations/006_entity_settings_and_bots.sql
+               /migrations/007_oauth_identities_audit.sql; do
         [ -f \"$$f\" ] && echo \"Running $$f\" && psql -v ON_ERROR_STOP=1 -h $$PGHOST -U $$PGUSER -d $$PGDATABASE -f \"$$f\";
       done;
       echo Migrations done.
