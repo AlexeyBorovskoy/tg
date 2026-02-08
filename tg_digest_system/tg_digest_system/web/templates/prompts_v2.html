@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Промпты — TG Digest</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            padding: 20px 24px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 500;
+            color: #37474f;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header-title .material-icons {
+            font-size: 24px;
+            color: #1976d2;
+        }
+
+        .header-actions a {
+            color: #1976d2;
+            text-decoration: none;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .header-actions a:hover {
+            text-decoration: underline;
+        }
+
+        /* Tabs */
+        .tabs {
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            padding: 0 24px;
+            flex-shrink: 0;
+        }
+        
+        .tab {
+            padding: 14px 20px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #78909c;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .tab:hover {
+            color: #37474f;
+        }
+        
+        .tab.active {
+            color: #1976d2;
+            border-bottom-color: #1976d2;
+        }
+
+        .prompts-layout {
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 1200px) {
+            .prompts-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #37474f;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-title .material-icons {
+            font-size: 20px;
+            color: #78909c;
+        }
+
+        .card-body {
+            padding: 20px;
+        }
+
+        /* Список промптов */
+        .prompts-list {
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+
+        .prompt-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            transition: background 0.2s;
+            position: relative;
+        }
+
+        .prompt-item:hover {
+            background: #fafafa;
+        }
+
+        .prompt-item.active {
+            background: #e3f2fd;
+            border-left: 3px solid #1976d2;
+        }
+
+        .prompt-item-name {
+            font-weight: 500;
+            color: #37474f;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .prompt-item-name .material-icons {
+            font-size: 18px;
+            color: #78909c;
+        }
+
+        .prompt-item-preview {
+            font-size: 12px;
+            color: #78909c;
+            line-height: 1.4;
+            margin-top: 4px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .prompt-item-actions {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            display: flex;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .prompt-item:hover .prompt-item-actions {
+            opacity: 1;
+        }
+
+        .icon-btn-small {
+            width: 28px;
+            height: 28px;
+            border: none;
+            background: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #78909c;
+            transition: all 0.2s;
+        }
+
+        .icon-btn-small:hover {
+            background: #eceff1;
+            color: #1976d2;
+        }
+
+        .icon-btn-small.delete:hover {
+            color: #c62828;
+        }
+
+        .icon-btn-small .material-icons {
+            font-size: 18px;
+        }
+
+        .btn-create {
+            width: 100%;
+            padding: 12px;
+            background: #1976d2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 12px;
+            transition: background 0.2s;
+        }
+
+        .btn-create:hover {
+            background: #1565c0;
+        }
+
+        .btn-create .material-icons {
+            font-size: 20px;
+        }
+
+        /* Редактор */
+        .prompt-type-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .prompt-type-btn {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #cfd8dc;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: #546e7a;
+            transition: all 0.2s;
+        }
+
+        .prompt-type-btn.active {
+            background: #e3f2fd;
+            border-color: #1976d2;
+            color: #1976d2;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            color: #78909c;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #cfd8dc;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #37474f;
+            transition: border-color 0.2s;
+            font-family: inherit;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #1976d2;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 400px;
+            font-family: 'Courier New', monospace;
+            line-height: 1.6;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: #1976d2;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1565c0;
+        }
+
+        .btn-primary:disabled {
+            background: #90caf9;
+            cursor: not-allowed;
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: #1976d2;
+            border: 1px solid #1976d2;
+        }
+
+        .btn-outline:hover {
+            background: #e3f2fd;
+        }
+
+        .status-message {
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 16px;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .status-message.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            display: flex;
+        }
+
+        .status-message.error {
+            background: #ffebee;
+            color: #c62828;
+            display: flex;
+        }
+
+        .status-message .material-icons {
+            font-size: 18px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #78909c;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #78909c;
+        }
+
+        .empty-state .material-icons {
+            font-size: 48px;
+            color: #cfd8dc;
+            margin-bottom: 12px;
+        }
+
+        .channel-info {
+            font-size: 12px;
+            color: #78909c;
+            margin-top: 8px;
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #1976d2;
+            padding: 16px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+
+        .info-box h3 {
+            margin: 0 0 8px 0;
+            font-size: 16px;
+            color: #1976d2;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .info-box p {
+            margin: 8px 0;
+            font-size: 14px;
+            color: #424242;
+            line-height: 1.6;
+        }
+
+        .info-box ul {
+            margin: 8px 0;
+            padding-left: 24px;
+            font-size: 14px;
+            color: #424242;
+        }
+
+        .info-box li {
+            margin: 4px 0;
+            line-height: 1.6;
+        }
+
+        .info-box code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .channel-selector {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .channel-selector h3 {
+            margin: 0 0 16px 0;
+            font-size: 16px;
+            color: #37474f;
+        }
+
+        .channel-selector .form-group {
+            margin-bottom: 16px;
+        }
+
+        .channel-selector label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #424242;
+        }
+
+        .channel-selector select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .channel-selector button {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .channel-selector button:hover {
+            background: #1565c0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="header-title">
+                <span class="material-icons">settings</span>
+                TG Digest System
+            </h1>
+            <div class="header-actions">
+                <button class="btn-header" onclick="loadPrompts()" title="Обновить" id="refreshBtn" style="display: none;">
+                    <span class="material-icons" style="font-size: 18px;">refresh</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <a href="/" class="tab">ДОБАВЛЕНИЕ КАНАЛА</a>
+            <a href="/channels" class="tab">МОИ КАНАЛЫ</a>
+            <a href="/prompts" class="tab active">ПРОМПТЫ</a>
+            <a href="/instructions" class="tab">ИНСТРУКЦИИ</a>
+        </div>
+
+        <!-- Выбор канала (если не выбран) -->
+        <div id="channelSelector" style="display: none;">
+            <div class="channel-selector">
+                <h3>Выберите канал для редактирования промптов</h3>
+                <div class="form-group">
+                    <label>Ваш Telegram ID:</label>
+                    <input type="number" id="userTelegramIdInput" placeholder="Например: 499412926" />
+                </div>
+                <div class="form-group">
+                    <label>Канал:</label>
+                    <select id="channelSelect">
+                        <option value="">-- Загрузите каналы --</option>
+                    </select>
+                </div>
+                <button onclick="loadChannelsForSelect()">
+                    <span class="material-icons" style="font-size: 18px;">refresh</span>
+                    Загрузить каналы
+                </button>
+                <button onclick="goToSelectedChannel()" style="margin-left: 8px;">
+                    <span class="material-icons" style="font-size: 18px;">arrow_forward</span>
+                    Перейти к редактированию
+                </button>
+            </div>
+        </div>
+
+        <!-- Инструкции по написанию промптов -->
+        <div id="promptsInstructions" style="display: none;">
+            <div class="info-box">
+                <h3>
+                    <span class="material-icons">info</span>
+                    Как писать промпты для дайджестов и сводных документов
+                </h3>
+                <p><strong>Промпт для дайджестов</strong> — это системный промпт, который используется GPT для генерации ежедневных дайджестов из сообщений Telegram канала.</p>
+                <p><strong>Промпт для сводного документа</strong> — это системный промпт для создания консолидированного инженерного документа из всех сообщений канала.</p>
+                
+                <h4 style="margin-top: 16px; margin-bottom: 8px; color: #1976d2;">Рекомендации по написанию промптов:</h4>
+                <ul>
+                    <li><strong>Будьте конкретны:</strong> Чётко опишите формат вывода, структуру и стиль</li>
+                    <li><strong>Укажите контекст:</strong> Объясните, что система обрабатывает сообщения из Telegram канала</li>
+                    <li><strong>Задайте структуру:</strong> Определите разделы, заголовки, списки, которые должны быть в результате</li>
+                    <li><strong>Укажите стиль:</strong> Опишите тон (формальный/неформальный), язык, длину текста</li>
+                    <li><strong>Добавьте примеры:</strong> Если возможно, включите примеры желаемого формата</li>
+                </ul>
+
+                <h4 style="margin-top: 16px; margin-bottom: 8px; color: #1976d2;">Пример промпта для дайджеста:</h4>
+                <pre style="background: #f5f5f5; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 13px; margin-top: 8px;"><code>Ты — эксперт по анализу технических сообщений. 
+Создай структурированный дайджест из следующих сообщений Telegram канала.
+
+Требования:
+- Используй заголовки для основных тем
+- Группируй связанные сообщения
+- Выделяй важные технические детали
+- Сохраняй ссылки на оригинальные сообщения
+- Пиши кратко, но информативно
+
+Формат: Markdown</code></pre>
+
+                <h4 style="margin-top: 16px; margin-bottom: 8px; color: #1976d2;">Пример промпта для сводного документа:</h4>
+                <pre style="background: #f5f5f5; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 13px; margin-top: 8px;"><code>Создай консолидированный инженерный документ из всех сообщений канала.
+
+Структура документа:
+1. Обзор проекта
+2. Технические решения
+3. Проблемы и решения
+4. Метрики и результаты
+5. Выводы
+
+Используй техническую терминологию, сохраняй важные детали, структурируй информацию логически.</code></pre>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">Загрузка промптов...</div>
+
+        <div id="content" style="display: none;">
+            <div class="prompts-layout">
+                <!-- Левая панель: Список промптов -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span class="material-icons">description</span>
+                            Сохранённые промпты
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="prompts-list" id="promptsList">
+                            <!-- Промпты будут добавлены через JS -->
+                        </div>
+                        <button class="btn-create" onclick="createNewPrompt()">
+                            <span class="material-icons">add</span>
+                            Создать новый
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Правая панель: Редактор -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span class="material-icons">edit</span>
+                            Редактор промпта
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="channel-info" id="channelInfo"></div>
+                        
+                        <div class="prompt-type-selector">
+                            <button class="prompt-type-btn active" onclick="switchPromptType('digest')" id="btnDigest">
+                                Промпт для дайджестов
+                            </button>
+                            <button class="prompt-type-btn" onclick="switchPromptType('consolidated')" id="btnConsolidated">
+                                Промпт для сводного документа
+                            </button>
+                        </div>
+
+                        <div class="form-group">
+                            <label>НАЗВАНИЕ ПРОМПТА</label>
+                            <input type="text" id="promptName" placeholder="Введите название промпта..." />
+                        </div>
+
+                        <div class="form-group">
+                            <label>ТЕКСТ ПРОМПТА (СИСТЕМНЫЙ ПРОМПТ ДЛЯ GPT)</label>
+                            <textarea id="promptText" placeholder="Введите системный промпт для GPT. Опишите формат вывода, структуру, стиль и требования к обработке сообщений..."></textarea>
+                            <div style="margin-top: 8px; font-size: 12px; color: #78909c;">
+                                💡 Совет: Будьте конкретны в описании формата и структуры. Используйте примеры для лучшего понимания GPT.
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button class="btn btn-primary" onclick="savePrompt()">
+                                <span class="material-icons" style="font-size: 18px;">save</span>
+                                Сохранить
+                            </button>
+                            <button class="btn btn-outline" onclick="testPrompt()">
+                                <span class="material-icons" style="font-size: 18px;">play_arrow</span>
+                                Тест
+                            </button>
+                        </div>
+
+                        <div class="status-message" id="statusMessage"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Параметры из URL
+        const urlParams = new URLSearchParams(window.location.search);
+        let channelId = urlParams.get('channel_id');
+        let userTelegramId = urlParams.get('user_telegram_id');
+
+        let currentPromptType = 'digest'; // 'digest' или 'consolidated'
+        let currentPromptId = null;
+        let prompts = {
+            digest: [],
+            consolidated: []
+        };
+
+        async function loadPrompts() {
+            const loading = document.getElementById('loading');
+            const content = document.getElementById('content');
+            
+            loading.style.display = 'block';
+            content.style.display = 'none';
+
+            try {
+                const response = await fetch(`/api/channels/${channelId}/prompts?user_telegram_id=${userTelegramId}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Ошибка загрузки промптов');
+                }
+
+                // Загружаем информацию о канале
+                await loadChannelInfo();
+
+                // Инициализируем промпты из ответа API
+                prompts.digest = data.prompts?.digest || [];
+                prompts.consolidated = data.prompts?.consolidated || [];
+
+                // Если промптов нет, создаём дефолтные
+                if (prompts.digest.length === 0) {
+                    prompts.digest = [{
+                        id: 'default_digest',
+                        name: 'Промпт для дайджестов',
+                        text: '',
+                        isDefault: true
+                    }];
+                }
+
+                if (prompts.consolidated.length === 0) {
+                    prompts.consolidated = [{
+                        id: 'default_consolidated',
+                        name: 'Промпт для сводного документа',
+                        text: '',
+                        isDefault: true
+                    }];
+                }
+
+                renderPromptsList();
+                const currentPrompts = currentPromptType === 'digest' ? prompts.digest : prompts.consolidated;
+                if (currentPrompts.length > 0) {
+                    loadPrompt(currentPrompts[0]);
+                }
+
+                loading.style.display = 'none';
+                content.style.display = 'block';
+            } catch (error) {
+                loading.style.display = 'none';
+                alert('Ошибка загрузки промптов: ' + error.message);
+            }
+        }
+
+        async function loadChannelInfo() {
+            try {
+                const response = await fetch(`/api/channels?user_telegram_id=${userTelegramId}`);
+                const data = await response.json();
+
+                if (response.ok && data.channels) {
+                    const channel = data.channels.find(c => c.id == channelId);
+                    if (channel) {
+                        document.getElementById('channelInfo').textContent = 
+                            `Канал: ${channel.name} (ID: ${channel.telegram_chat_id})`;
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки информации о канале:', error);
+            }
+        }
+
+        function renderPromptsList() {
+            const list = document.getElementById('promptsList');
+            const currentPrompts = currentPromptType === 'digest' ? prompts.digest : prompts.consolidated;
+            
+            if (currentPrompts.length === 0) {
+                list.innerHTML = '<div class="empty-state"><span class="material-icons">description</span><p>Нет сохранённых промптов</p></div>';
+                return;
+            }
+
+            list.innerHTML = currentPrompts.map(prompt => `
+                <div class="prompt-item ${prompt.id === currentPromptId ? 'active' : ''}" 
+                     onclick="loadPromptById('${prompt.id}')">
+                    <div class="prompt-item-name">
+                        <span class="material-icons">${prompt.isDefault ? 'description' : 'note'}</span>
+                        ${escapeHtml(prompt.name)}
+                    </div>
+                    <div class="prompt-item-preview">${escapeHtml(prompt.text.substring(0, 100))}${prompt.text.length > 100 ? '...' : ''}</div>
+                    ${!prompt.isDefault ? `
+                    <div class="prompt-item-actions" onclick="event.stopPropagation()">
+                        <button class="icon-btn-small" onclick="editPromptName('${prompt.id}')" title="Редактировать название">
+                            <span class="material-icons">edit</span>
+                        </button>
+                        <button class="icon-btn-small delete" onclick="deletePrompt('${prompt.id}')" title="Удалить">
+                            <span class="material-icons">delete</span>
+                        </button>
+                    </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        function switchPromptType(type) {
+            currentPromptType = type;
+            
+            // Обновляем кнопки
+            document.getElementById('btnDigest').classList.toggle('active', type === 'digest');
+            document.getElementById('btnConsolidated').classList.toggle('active', type === 'consolidated');
+            
+            // Загружаем первый промпт выбранного типа
+            const currentPrompts = type === 'digest' ? prompts.digest : prompts.consolidated;
+            if (currentPrompts.length > 0) {
+                loadPrompt(currentPrompts[0]);
+            } else {
+                document.getElementById('promptName').value = '';
+                document.getElementById('promptText').value = '';
+                currentPromptId = null;
+            }
+            
+            renderPromptsList();
+        }
+
+        function loadPrompt(prompt) {
+            currentPromptId = prompt.id;
+            document.getElementById('promptName').value = prompt.name;
+            document.getElementById('promptText').value = prompt.text;
+            renderPromptsList();
+        }
+
+        function loadPromptById(promptId) {
+            const currentPrompts = currentPromptType === 'digest' ? prompts.digest : prompts.consolidated;
+            const prompt = currentPrompts.find(p => p.id === promptId);
+            if (prompt) {
+                loadPrompt(prompt);
+            }
+        }
+
+        async function createNewPrompt() {
+            const defaultName = `Новый промпт ${currentPromptType === 'digest' ? 'дайджестов' : 'сводного документа'}`;
+            const name = prompt(`Введите название нового промпта:`, defaultName);
+            if (!name || !name.trim()) return;
+
+            const newPrompt = {
+                id: 'prompt_' + Date.now(),
+                name: name.trim(),
+                text: '',
+                isDefault: false
+            };
+
+            const currentPrompts = currentPromptType === 'digest' ? prompts.digest : prompts.consolidated;
+            currentPrompts.push(newPrompt);
+            
+            loadPrompt(newPrompt);
+            renderPromptsList();
+        }
+
+        async function savePrompt() {
+            const name = document.getElementById('promptName').value.trim();
+            const text = document.getElementById('promptText').value.trim();
+            const statusEl = document.getElementById('statusMessage');
+
+            if (!name) {
+                statusEl.className = 'status-message error';
+                statusEl.innerHTML = '<span class="material-icons">error</span> Введите название промпта';
+                statusEl.style.display = 'flex';
+                return;
+            }
+
+            if (!text) {
+                statusEl.className = 'status-message error';
+                statusEl.innerHTML = '<span class="material-icons">error</span> Введите текст промпта';
+                statusEl.style.display = 'flex';
+                return;
+            }
+
+            statusEl.style.display = 'none';
+
+            try {
+                const currentPrompts = currentPromptType === 'digest' ? prompts.digest : prompts.consolidated;
+                const prompt = currentPrompts.find(p => p.id === currentPromptId);
+                
+                let response;
+                let data;
+
+                if (prompt && prompt.id && !prompt.id.startsWith('default_') && !prompt.id.startsWith('prompt_')) {
+                    // Обновляем существующий промпт в БД
+                    const formData = new FormData();
+                    formData.append('user_telegram_id', userTelegramId);
+                    formData.append('name', name);
+                    formData.append('text', text);
+
+                    response = await fetch(`/api/channels/${channelId}/prompts/${prompt.id}`, {
+                        method: 'PUT',
+                        body: formData
+                    });
+                } else {
+                    // Создаём новый промпт в БД
+                    const formData = new FormData();
+                    formData.append('user_telegram_id', userTelegramId);
+                    formData.append('prompt_type', currentPromptType);
+                    formData.append('name', name);
+                    formData.append('text', text);
+                    formData.append('is_default', 'false');
+
+                    response = await fetch(`/api/channels/${channelId}/prompts`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                }
+
+                data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Ошибка сохранения промпта');
+                }
+
+                // Обновляем локальный промпт
+                if (prompt) {
+                    prompt.name = name;
+                    prompt.text = text;
+                    if (data.prompt_id) {
+                        prompt.id = data.prompt_id;
+                    }
+                } else {
+                    // Создаём новый промпт локально
+                    const newPrompt = {
+                        id: data.prompt_id || 'prompt_' + Date.now(),
+                        name: name,
+                        text: text,
+                        isDefault: false
+                    };
+                    currentPrompts.push(newPrompt);
+                    currentPromptId = newPrompt.id;
+                }
+
+                statusEl.className = 'status-message success';
+                statusEl.innerHTML = '<span class="material-icons">check_circle</span> Промпт успешно сохранён';
+                statusEl.style.display = 'flex';
+
+                renderPromptsList();
+
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 3000);
+            } catch (error) {
+                statusEl.className = 'status-message error';
+                statusEl.innerHTML = '<span class="material-icons">error</span> Ошибка: ' + error.message;
+                statusEl.style.display = 'flex';
+            }
+        }
+
+        function testPrompt() {
+            alert('Функция тестирования промпта будет реализована позже');
+        }
+
+        function editPromptName(promptId) {
+            const currentPrompts = currentPromptType === 'digest' ? prompts.digest : prompts.consolidated;
+            const prompt = currentPrompts.find(p => p.id === promptId);
+            if (!prompt) return;
+
+            const newName = prompt(`Введите новое название:`, prompt.name);
+            if (newName && newName.trim()) {
+                prompt.name = newName.trim();
+                renderPromptsList();
+                if (currentPromptId === promptId) {
+                    document.getElementById('promptName').value = prompt.name;
+                }
+            }
+        }
+
+        async function deletePrompt(promptId) {
+            if (!confirm('Удалить этот промпт?')) return;
+
+            const currentPrompts = currentPromptType === 'digest' ? prompts.digest : prompts.consolidated;
+            const prompt = currentPrompts.find(p => p.id === promptId);
+            
+            // Если это промпт из БД (не дефолтный), удаляем из БД
+            if (prompt && prompt.id && !prompt.id.startsWith('default_') && !prompt.id.startsWith('prompt_')) {
+                try {
+                    const response = await fetch(`/api/channels/${channelId}/prompts/${prompt.id}?user_telegram_id=${userTelegramId}`, {
+                        method: 'DELETE'
+                    });
+
+                    if (!response.ok) {
+                        const data = await response.json();
+                        throw new Error(data.detail || 'Ошибка удаления промпта');
+                    }
+                } catch (error) {
+                    alert('Ошибка удаления промпта: ' + error.message);
+                    return;
+                }
+            }
+
+            const index = currentPrompts.findIndex(p => p.id === promptId);
+            if (index === -1) return;
+
+            currentPrompts.splice(index, 1);
+            renderPromptsList();
+
+            if (currentPrompts.length > 0) {
+                loadPrompt(currentPrompts[0]);
+            } else {
+                document.getElementById('promptName').value = '';
+                document.getElementById('promptText').value = '';
+                currentPromptId = null;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Инициализация при загрузке страницы
+        window.addEventListener('DOMContentLoaded', () => {
+            // Обновляем активную вкладку
+            const currentPath = window.location.pathname;
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (currentPath === '/' && tab.textContent.trim() === 'ДОБАВЛЕНИЕ КАНАЛА') {
+                    tab.classList.add('active');
+                } else if (currentPath === '/channels' && tab.textContent.trim() === 'МОИ КАНАЛЫ') {
+                    tab.classList.add('active');
+                } else if (currentPath === '/prompts' && tab.textContent.trim() === 'ПРОМПТЫ') {
+                    tab.classList.add('active');
+                } else if (currentPath === '/instructions' && tab.textContent.trim() === 'ИНСТРУКЦИИ') {
+                    tab.classList.add('active');
+                }
+            });
+
+            // Если нет channel_id или user_telegram_id, показываем выбор канала
+            if (!channelId || !userTelegramId) {
+                // Показываем форму выбора канала и инструкции
+                document.getElementById('channelSelector').style.display = 'block';
+                document.getElementById('promptsInstructions').style.display = 'block';
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'none';
+                
+                // Если есть user_telegram_id в URL, заполняем поле и загружаем каналы
+                if (userTelegramId) {
+                    document.getElementById('userTelegramIdInput').value = userTelegramId;
+                    // Автоматически загружаем каналы
+                    setTimeout(() => {
+                        loadChannelsForSelect();
+                    }, 100);
+                }
+            } else {
+                // Скрываем форму выбора, показываем редактор
+                document.getElementById('channelSelector').style.display = 'none';
+                document.getElementById('promptsInstructions').style.display = 'block';
+                document.getElementById('refreshBtn').style.display = 'inline-flex';
+                // Загружаем промпты
+                loadPrompts();
+            }
+        });
+        
+        // Функция загрузки каналов для выбора
+        async function loadChannelsForSelect() {
+            const userId = document.getElementById('userTelegramIdInput').value;
+            if (!userId) {
+                alert('Введите ваш Telegram ID');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/channels?user_telegram_id=${userId}`);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Ошибка загрузки каналов');
+                }
+
+                const select = document.getElementById('channelSelect');
+                select.innerHTML = '<option value="">-- Выберите канал --</option>';
+                
+                if (data.channels && data.channels.length > 0) {
+                    data.channels.forEach(channel => {
+                        const option = document.createElement('option');
+                        option.value = channel.id;
+                        option.textContent = `${channel.name} (ID: ${channel.telegram_chat_id})`;
+                        select.appendChild(option);
+                    });
+                } else {
+                    select.innerHTML = '<option value="">-- Нет доступных каналов --</option>';
+                }
+            } catch (error) {
+                alert('Ошибка загрузки каналов: ' + error.message);
+            }
+        }
+
+        // Переход к редактированию выбранного канала
+        function goToSelectedChannel() {
+            const userId = document.getElementById('userTelegramIdInput').value;
+            const selectedChannelId = document.getElementById('channelSelect').value;
+
+            if (!userId) {
+                alert('Введите ваш Telegram ID');
+                return;
+            }
+
+            if (!selectedChannelId) {
+                alert('Выберите канал');
+                return;
+            }
+
+            window.location.href = `/prompts?channel_id=${selectedChannelId}&user_telegram_id=${userId}`;
+        }
+
+        // Логика загрузки уже обработана выше в условии if/else
+    </script>
+</body>
+</html>

@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Редактирование промптов — TG Digest</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 24px;
+            color: #1976d2;
+            margin-bottom: 8px;
+        }
+
+        .header .channel-info {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .nav-links {
+            margin-top: 16px;
+        }
+
+        .nav-links a {
+            color: #1976d2;
+            text-decoration: none;
+            margin-right: 16px;
+            font-size: 14px;
+        }
+
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+
+        .prompts-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 1200px) {
+            .prompts-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .prompt-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .prompt-section h2 {
+            font-size: 18px;
+            color: #1976d2;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .prompt-section .description {
+            color: #666;
+            font-size: 13px;
+            margin-bottom: 16px;
+        }
+
+        .prompt-editor {
+            width: 100%;
+            min-height: 500px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            resize: vertical;
+        }
+
+        .prompt-editor:focus {
+            outline: none;
+            border-color: #1976d2;
+            box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+
+        .btn-primary {
+            background: #1976d2;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1565c0;
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status-message {
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 16px;
+            display: none;
+        }
+
+        .status-message.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #4caf50;
+        }
+
+        .status-message.error {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #f44336;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .file-info {
+            font-size: 12px;
+            color: #999;
+            margin-top: 8px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                <span class="material-icons" style="vertical-align: middle; font-size: 28px;">edit</span>
+                Редактирование промптов
+            </h1>
+            <div class="channel-info" id="channelInfo">Загрузка информации о канале...</div>
+            <div class="nav-links">
+                <a href="/channels">
+                    <span class="material-icons" style="font-size: 18px; vertical-align: middle;">arrow_back</span>
+                    Вернуться к списку каналов
+                </a>
+            </div>
+        </div>
+
+        <div class="loading active" id="loading">
+            Загрузка промптов...
+        </div>
+
+        <div id="promptsContent" style="display: none;">
+            <div class="prompts-container">
+                <div class="prompt-section">
+                    <h2>
+                        <span class="material-icons">description</span>
+                        Промпт для дайджестов
+                    </h2>
+                    <div class="description">
+                        Используется для генерации периодических дайджестов из сообщений чата
+                    </div>
+                    <textarea 
+                        id="promptText" 
+                        class="prompt-editor" 
+                        placeholder="Введите текст промпта для генерации дайджестов..."
+                    ></textarea>
+                    <div class="file-info" id="promptFileInfo"></div>
+                    <div class="actions">
+                        <button class="btn btn-primary" onclick="savePrompt('digest')">
+                            <span class="material-icons" style="font-size: 18px;">save</span>
+                            Сохранить промпт дайджестов
+                        </button>
+                    </div>
+                    <div class="status-message" id="digestStatus"></div>
+                </div>
+
+                <div class="prompt-section">
+                    <h2>
+                        <span class="material-icons">article</span>
+                        Промпт для сводного документа
+                    </h2>
+                    <div class="description">
+                        Используется для генерации и обновления сводного инженерного документа
+                    </div>
+                    <textarea 
+                        id="consolidatedPromptText" 
+                        class="prompt-editor" 
+                        placeholder="Введите текст промпта для генерации сводного документа..."
+                    ></textarea>
+                    <div class="file-info" id="consolidatedPromptFileInfo"></div>
+                    <div class="actions">
+                        <button class="btn btn-primary" onclick="savePrompt('consolidated')">
+                            <span class="material-icons" style="font-size: 18px;">save</span>
+                            Сохранить промпт сводного документа
+                        </button>
+                    </div>
+                    <div class="status-message" id="consolidatedStatus"></div>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px; text-align: center;">
+                <button class="btn btn-secondary" onclick="loadPrompts()">
+                    <span class="material-icons" style="font-size: 18px;">refresh</span>
+                    Обновить промпты
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Получаем параметры из URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const channelId = urlParams.get('channel_id');
+        const userTelegramId = urlParams.get('user_telegram_id');
+
+        if (!channelId || !userTelegramId) {
+            alert('Не указаны параметры channel_id или user_telegram_id');
+            window.location.href = '/channels';
+        }
+
+        async function loadPrompts() {
+            const loading = document.getElementById('loading');
+            const content = document.getElementById('promptsContent');
+            
+            loading.classList.add('active');
+            content.style.display = 'none';
+
+            try {
+                const response = await fetch(`/api/channels/${channelId}/prompts?user_telegram_id=${userTelegramId}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Ошибка загрузки промптов');
+                }
+
+                // Заполняем поля
+                document.getElementById('promptText').value = data.prompt_text || '';
+                document.getElementById('consolidatedPromptText').value = data.consolidated_doc_prompt_text || '';
+
+                // Показываем информацию о файлах
+                if (data.prompt_file) {
+                    document.getElementById('promptFileInfo').textContent = 
+                        `Используется файл: ${data.prompt_file} (можно переопределить, сохранив текст выше)`;
+                }
+                if (data.consolidated_doc_prompt_file) {
+                    document.getElementById('consolidatedPromptFileInfo').textContent = 
+                        `Используется файл: ${data.consolidated_doc_prompt_file} (можно переопределить, сохранив текст выше)`;
+                }
+
+                // Загружаем информацию о канале
+                await loadChannelInfo();
+
+                loading.classList.remove('active');
+                content.style.display = 'block';
+            } catch (error) {
+                loading.classList.remove('active');
+                alert('Ошибка загрузки промптов: ' + error.message);
+            }
+        }
+
+        async function loadChannelInfo() {
+            try {
+                const response = await fetch(`/api/channels?user_telegram_id=${userTelegramId}`);
+                const data = await response.json();
+
+                if (response.ok && data.channels) {
+                    const channel = data.channels.find(c => c.id == channelId);
+                    if (channel) {
+                        document.getElementById('channelInfo').textContent = 
+                            `Канал: ${channel.name} (ID: ${channel.telegram_chat_id})`;
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки информации о канале:', error);
+            }
+        }
+
+        async function savePrompt(type) {
+            const statusId = type === 'digest' ? 'digestStatus' : 'consolidatedStatus';
+            const statusEl = document.getElementById(statusId);
+            const btn = event.target.closest('.btn');
+            
+            btn.disabled = true;
+            statusEl.style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('user_telegram_id', userTelegramId);
+            
+            if (type === 'digest') {
+                formData.append('prompt_text', document.getElementById('promptText').value);
+            } else {
+                formData.append('consolidated_doc_prompt_text', document.getElementById('consolidatedPromptText').value);
+            }
+
+            try {
+                const response = await fetch(`/api/channels/${channelId}/prompts`, {
+                    method: 'PUT',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Ошибка сохранения промпта');
+                }
+
+                statusEl.className = 'status-message success';
+                statusEl.textContent = '✓ Промпт успешно сохранён';
+                statusEl.style.display = 'block';
+
+                // Скрываем сообщение через 3 секунды
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 3000);
+            } catch (error) {
+                statusEl.className = 'status-message error';
+                statusEl.textContent = '✗ Ошибка: ' + error.message;
+                statusEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // Загружаем промпты при загрузке страницы
+        loadPrompts();
+    </script>
+</body>
+</html>

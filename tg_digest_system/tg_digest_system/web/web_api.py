@@ -176,6 +176,12 @@ async def instructions_page(request: Request):
     return templates.TemplateResponse("instructions.html", {"request": request})
 
 
+@app.get("/prompts", response_class=HTMLResponse)
+async def prompts_page(request: Request):
+    """Страница редактирования промптов канала"""
+    return templates.TemplateResponse("prompts_v2.html", {"request": request})
+
+
 @app.post("/api/users", response_class=JSONResponse)
 async def create_user(user: UserCreate, db=Depends(get_db)):
     """Создаёт или получает пользователя"""
@@ -441,6 +447,277 @@ async def get_consolidated_document(channel_id: int, user_telegram_id: int, db=D
         raise
     except Exception as e:
         logger.error(f"Ошибка получения документа: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/channels/{channel_id}/prompts", response_class=JSONResponse)
+async def get_channel_prompts(channel_id: int, user_telegram_id: int, prompt_type: Optional[str] = None, db=Depends(get_db)):
+    """Возвращает промпты канала для редактирования"""
+    try:
+        user_id = get_or_create_user(db, user_telegram_id, None)
+        
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            # Проверяем что канал принадлежит пользователю
+            cur.execute("""
+                SELECT id FROM web_channels 
+                WHERE id = %s AND user_id = %s
+            """, (channel_id, user_id))
+            
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Канал не найден")
+            
+            # Загружаем промпты из таблицы channel_prompts
+            if prompt_type:
+                cur.execute("""
+                    SELECT id, prompt_type, name, text, is_default, created_at, updated_at
+                    FROM channel_prompts
+                    WHERE channel_id = %s AND prompt_type = %s
+                    ORDER BY is_default DESC, created_at DESC
+                """, (channel_id, prompt_type))
+            else:
+                cur.execute("""
+                    SELECT id, prompt_type, name, text, is_default, created_at, updated_at
+                    FROM channel_prompts
+                    WHERE channel_id = %s
+                    ORDER BY prompt_type, is_default DESC, created_at DESC
+                """, (channel_id,))
+            
+            prompts_list = cur.fetchall()
+            
+            # Если промптов нет, возвращаем дефолтные из web_channels
+            if not prompts_list:
+                cur.execute("""
+                    SELECT prompt_file, prompt_text, consolidated_doc_prompt_file, consolidated_doc_prompt_text
+                    FROM web_channels
+                    WHERE id = %s
+                """, (channel_id,))
+                channel = cur.fetchone()
+                
+                if channel:
+                    # Загружаем из файлов если нужно
+                    prompt_text = channel.get('prompt_text')
+                    consolidated_prompt_text = channel.get('consolidated_doc_prompt_text')
+                    
+                    if not prompt_text and channel.get('prompt_file'):
+                        prompt_path = Path(os.environ.get("PROMPTS_DIR", "/app/prompts")) / Path(channel['prompt_file']).name
+                        if prompt_path.exists():
+                            try:
+                                prompt_text = prompt_path.read_text(encoding="utf-8")
+                            except Exception as e:
+                                logger.warning(f"Не удалось загрузить промпт из файла {prompt_path}: {e}")
+                    
+                    if not consolidated_prompt_text and channel.get('consolidated_doc_prompt_file'):
+                        cons_prompt_path = Path(os.environ.get("PROMPTS_DIR", "/app/prompts")) / Path(channel['consolidated_doc_prompt_file']).name
+                        if cons_prompt_path.exists():
+                            try:
+                                consolidated_prompt_text = cons_prompt_path.read_text(encoding="utf-8")
+                            except Exception as e:
+                                logger.warning(f"Не удалось загрузить промпт сводного документа из файла {cons_prompt_path}: {e}")
+                    
+                    return {
+                        "prompts": {
+                            "digest": [{
+                                "id": "default_digest",
+                                "name": "Промпт для дайджестов",
+                                "text": prompt_text or "",
+                                "is_default": True
+                            }],
+                            "consolidated": [{
+                                "id": "default_consolidated",
+                                "name": "Промпт для сводного документа",
+                                "text": consolidated_prompt_text or "",
+                                "is_default": True
+                            }]
+                        }
+                    }
+            
+            # Группируем промпты по типам
+            prompts_by_type = {"digest": [], "consolidated": []}
+            for p in prompts_list:
+                prompts_by_type[p['prompt_type']].append({
+                    "id": p['id'],
+                    "name": p['name'],
+                    "text": p['text'],
+                    "is_default": p['is_default'],
+                    "created_at": p['created_at'].isoformat() if p['created_at'] else None,
+                    "updated_at": p['updated_at'].isoformat() if p['updated_at'] else None
+                })
+            
+            return {"prompts": prompts_by_type}
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка получения промптов: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/channels/{channel_id}/prompts", response_class=JSONResponse)
+async def create_channel_prompt(
+    channel_id: int,
+    user_telegram_id: int = Form(...),
+    prompt_type: str = Form(...),
+    name: str = Form(...),
+    text: str = Form(...),
+    is_default: bool = Form(False),
+    db=Depends(get_db)
+):
+    """Создаёт новый промпт для канала"""
+    try:
+        user_id = get_or_create_user(db, user_telegram_id, None)
+        
+        if prompt_type not in ['digest', 'consolidated']:
+            raise HTTPException(status_code=400, detail="prompt_type должен быть 'digest' или 'consolidated'")
+        
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            # Проверяем что канал принадлежит пользователю
+            cur.execute("""
+                SELECT id FROM web_channels 
+                WHERE id = %s AND user_id = %s
+            """, (channel_id, user_id))
+            
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Канал не найден")
+            
+            # Если это промпт по умолчанию, снимаем флаг с других
+            if is_default:
+                cur.execute("""
+                    UPDATE channel_prompts 
+                    SET is_default = false 
+                    WHERE channel_id = %s AND prompt_type = %s
+                """, (channel_id, prompt_type))
+            
+            # Создаём новый промпт
+            cur.execute("""
+                INSERT INTO channel_prompts (channel_id, user_id, prompt_type, name, text, is_default)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (channel_id, user_id, prompt_type, name, text, is_default))
+            
+            prompt_id = cur.fetchone()['id']
+            db.commit()
+        
+        return {"success": True, "prompt_id": prompt_id, "message": "Промпт создан"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка создания промпта: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/channels/{channel_id}/prompts/{prompt_id}", response_class=JSONResponse)
+async def update_channel_prompt(
+    channel_id: int,
+    prompt_id: int,
+    user_telegram_id: int = Form(...),
+    name: Optional[str] = Form(None),
+    text: Optional[str] = Form(None),
+    is_default: Optional[bool] = Form(None),
+    db=Depends(get_db)
+):
+    """Обновляет промпт канала"""
+    try:
+        user_id = get_or_create_user(db, user_telegram_id, None)
+        
+        with db.cursor() as cur:
+            # Проверяем что промпт принадлежит каналу пользователя
+            cur.execute("""
+                SELECT cp.id, cp.prompt_type 
+                FROM channel_prompts cp
+                JOIN web_channels wc ON cp.channel_id = wc.id
+                WHERE cp.id = %s AND cp.channel_id = %s AND wc.user_id = %s
+            """, (prompt_id, channel_id, user_id))
+            
+            prompt = cur.fetchone()
+            if not prompt:
+                raise HTTPException(status_code=404, detail="Промпт не найден")
+            
+            # Если устанавливаем как default, снимаем флаг с других
+            if is_default is True:
+                cur.execute("""
+                    UPDATE channel_prompts 
+                    SET is_default = false 
+                    WHERE channel_id = %s AND prompt_type = %s AND id != %s
+                """, (channel_id, prompt[1], prompt_id))
+            
+            # Обновляем промпт
+            update_fields = []
+            params = []
+            
+            if name is not None:
+                update_fields.append("name = %s")
+                params.append(name)
+            
+            if text is not None:
+                update_fields.append("text = %s")
+                params.append(text)
+            
+            if is_default is not None:
+                update_fields.append("is_default = %s")
+                params.append(is_default)
+            
+            if update_fields:
+                update_fields.append("updated_at = now()")
+                params.extend([prompt_id, channel_id, user_id])
+                
+                cur.execute(f"""
+                    UPDATE channel_prompts 
+                    SET {', '.join(update_fields)}
+                    WHERE id = %s AND channel_id = %s 
+                    AND EXISTS (
+                        SELECT 1 FROM web_channels wc 
+                        WHERE wc.id = channel_prompts.channel_id AND wc.user_id = %s
+                    )
+                """, params)
+                
+                db.commit()
+        
+        return {"success": True, "message": "Промпт обновлён"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка обновления промпта: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/channels/{channel_id}/prompts/{prompt_id}", response_class=JSONResponse)
+async def delete_channel_prompt(
+    channel_id: int,
+    prompt_id: int,
+    user_telegram_id: int,
+    db=Depends(get_db)
+):
+    """Удаляет промпт канала"""
+    try:
+        user_id = get_or_create_user(db, user_telegram_id, None)
+        
+        with db.cursor() as cur:
+            # Проверяем что промпт принадлежит каналу пользователя
+            cur.execute("""
+                DELETE FROM channel_prompts
+                WHERE id = %s AND channel_id = %s 
+                AND EXISTS (
+                    SELECT 1 FROM web_channels wc 
+                    WHERE wc.id = channel_prompts.channel_id AND wc.user_id = %s
+                )
+            """, (prompt_id, channel_id, user_id))
+            
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Промпт не найден")
+            
+            db.commit()
+        
+        return {"success": True, "message": "Промпт удалён"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка удаления промпта: {e}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 

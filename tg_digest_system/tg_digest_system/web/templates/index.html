@@ -51,9 +51,9 @@
         }
         
         .btn-header {
-            background: transparent;
-            border: 1px solid #e0e0e0;
-            color: #424242;
+            background: #1976d2;
+            border: none;
+            color: #ffffff;
             padding: 8px 16px;
             border-radius: 4px;
             text-decoration: none;
@@ -63,15 +63,48 @@
             align-items: center;
             gap: 6px;
             transition: background 0.2s;
+            cursor: pointer;
         }
         
         .btn-header:hover {
-            background: #f5f5f5;
+            background: #1565c0;
+        }
+        
+        /* Tabs */
+        .tabs {
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            padding: 0 24px;
+            flex-shrink: 0;
+        }
+        
+        .tab {
+            padding: 14px 20px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #78909c;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .tab:hover {
+            color: #37474f;
+        }
+        
+        .tab.active {
+            color: #1976d2;
+            border-bottom-color: #1976d2;
         }
         
         /* Main container */
         .container {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 24px auto;
             padding: 0 24px;
         }
@@ -290,16 +323,19 @@
             <span>TG Digest System</span>
         </div>
         <div class="header-actions">
-            <a href="/instructions" class="btn-header">
-                <span class="material-icons" style="font-size: 18px;">help_outline</span>
-                Инструкции
-            </a>
-            <a href="/channels" class="btn-header">
-                <span class="material-icons" style="font-size: 18px;">list</span>
-                Мои каналы
-            </a>
+            <button class="btn-header" onclick="document.getElementById('fileInput')?.click()" style="display: none;">
+                <span class="material-icons" style="font-size: 18px;">refresh</span>
+            </button>
         </div>
     </header>
+    
+    <!-- Tabs -->
+    <div class="tabs">
+        <a href="/" class="tab active">ДОБАВЛЕНИЕ КАНАЛА</a>
+        <a href="/channels" class="tab">МОИ КАНАЛЫ</a>
+        <a href="/prompts" class="tab" id="promptsTab">ПРОМПТЫ</a>
+        <a href="/instructions" class="tab">ИНСТРУКЦИИ</a>
+    </div>
     
     <!-- Main content -->
     <div class="container">
@@ -450,12 +486,41 @@
         const submitBtn = document.getElementById('submitBtn');
         const channelsLink = document.getElementById('channelsLink');
         const userTelegramIdInput = document.getElementById('userTelegramId');
+        const promptsTab = document.getElementById('promptsTab');
         
-        // Обновляем ссылку при изменении user_telegram_id
+        // Обновляем ссылки при изменении user_telegram_id
         userTelegramIdInput.addEventListener('input', (e) => {
             const userId = e.target.value;
             if (userId) {
                 channelsLink.href = `/channels?user_telegram_id=${userId}`;
+                // Для промптов нужен channel_id, поэтому пока оставляем базовую ссылку
+                // Пользователь сможет выбрать канал на странице промптов
+            }
+        });
+        
+        // Обновляем ссылку на промпты при изменении user_telegram_id
+        userTelegramIdInput.addEventListener('input', (e) => {
+            const userId = e.target.value;
+            const promptsTab = document.getElementById('promptsTab');
+            if (userId && promptsTab) {
+                promptsTab.href = `/prompts?user_telegram_id=${userId}`;
+            } else if (promptsTab) {
+                promptsTab.href = '/prompts';
+            }
+        });
+        
+        // Обновляем активную вкладку на основе текущего URL
+        const currentPath = window.location.pathname;
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.classList.remove('active');
+            if (currentPath === '/' && tab.textContent.trim() === 'ДОБАВЛЕНИЕ КАНАЛА') {
+                tab.classList.add('active');
+            } else if (currentPath === '/channels' && tab.textContent.trim() === 'МОИ КАНАЛЫ') {
+                tab.classList.add('active');
+            } else if (currentPath === '/prompts' && tab.textContent.trim() === 'ПРОМПТЫ') {
+                tab.classList.add('active');
+            } else if (currentPath === '/instructions' && tab.textContent.trim() === 'ИНСТРУКЦИИ') {
+                tab.classList.add('active');
             }
         });
         

@@ -248,25 +248,79 @@ def get_enabled_channels(config: Config) -> list[Channel]:
 
 
 def get_prompt(config: Config, channel: Channel) -> str:
-    """Загружает текст промпта для канала (дайджест)"""
-    # Используем prompts_dir вместо repo_dir для поиска промптов
+    """Загружает текст промпта для канала (дайджест)
+    
+    Приоритет загрузки:
+    1. Из таблицы channel_prompts (БД) - промпт с is_default=true
+    2. Из поля prompt_text таблицы web_channels (обратная совместимость)
+    3. Из файла (fallback)
+    """
+    # Пробуем загрузить из БД
+    user_id = getattr(channel, 'user_id', None)
+    
+    try:
+        from config_db import get_prompt_from_db, get_prompt_from_web_channels
+        
+        # Сначала из channel_prompts
+        prompt_text = get_prompt_from_db(config, channel.id, 'digest', user_id)
+        if prompt_text:
+            logger.debug(f"Промпт для дайджестов загружен из БД (channel_prompts) для канала {channel.id}")
+            return prompt_text
+        
+        # Затем из web_channels (обратная совместимость)
+        prompt_text = get_prompt_from_web_channels(config, channel.id, 'digest', user_id)
+        if prompt_text:
+            logger.debug(f"Промпт для дайджестов загружен из БД (web_channels) для канала {channel.id}")
+            return prompt_text
+    except Exception as e:
+        logger.warning(f"Не удалось загрузить промпт из БД для канала {channel.id}: {e}, используем файл")
+    
+    # Fallback: загружаем из файла
     prompt_path = config.prompts_dir / Path(channel.prompt_file).name
     
     if not prompt_path.exists():
-        raise FileNotFoundError(f"Промпт не найден: {prompt_path}")
+        raise FileNotFoundError(f"Промпт не найден ни в БД, ни в файле: {prompt_path}")
     
+    logger.debug(f"Промпт для дайджестов загружен из файла {prompt_path} для канала {channel.id}")
     with open(prompt_path, "r", encoding="utf-8") as f:
         return f.read()
 
 
 def get_consolidated_prompt(config: Config, channel: Channel) -> str:
-    """Загружает текст промпта для сводного инженерного документа"""
-    # Используем prompts_dir вместо repo_dir для поиска промптов
+    """Загружает текст промпта для сводного инженерного документа
+    
+    Приоритет загрузки:
+    1. Из таблицы channel_prompts (БД) - промпт с is_default=true
+    2. Из поля consolidated_doc_prompt_text таблицы web_channels (обратная совместимость)
+    3. Из файла (fallback)
+    """
+    # Пробуем загрузить из БД
+    user_id = getattr(channel, 'user_id', None)
+    
+    try:
+        from config_db import get_prompt_from_db, get_prompt_from_web_channels
+        
+        # Сначала из channel_prompts
+        prompt_text = get_prompt_from_db(config, channel.id, 'consolidated', user_id)
+        if prompt_text:
+            logger.debug(f"Промпт для сводного документа загружен из БД (channel_prompts) для канала {channel.id}")
+            return prompt_text
+        
+        # Затем из web_channels (обратная совместимость)
+        prompt_text = get_prompt_from_web_channels(config, channel.id, 'consolidated', user_id)
+        if prompt_text:
+            logger.debug(f"Промпт для сводного документа загружен из БД (web_channels) для канала {channel.id}")
+            return prompt_text
+    except Exception as e:
+        logger.warning(f"Не удалось загрузить промпт сводного документа из БД для канала {channel.id}: {e}, используем файл")
+    
+    # Fallback: загружаем из файла
     prompt_path = config.prompts_dir / Path(channel.consolidated_doc_prompt_file).name
     
     if not prompt_path.exists():
-        raise FileNotFoundError(f"Промпт сводного документа не найден: {prompt_path}")
+        raise FileNotFoundError(f"Промпт сводного документа не найден ни в БД, ни в файле: {prompt_path}")
     
+    logger.debug(f"Промпт для сводного документа загружен из файла {prompt_path} для канала {channel.id}")
     with open(prompt_path, "r", encoding="utf-8") as f:
         return f.read()
 

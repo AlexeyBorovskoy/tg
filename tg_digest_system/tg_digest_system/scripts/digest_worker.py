@@ -69,28 +69,52 @@ class DigestWorker:
             self.ocr_service = None
         self.llm_service = LLMService(config)
 
-    async def _notify_step(
-        self,
-        channel: Channel,
-        step_name: str,
-        success: bool,
-        message: str,
-        **extra: str,
-    ) -> None:
-        """Отправляет уведомление о шаге в Telegram. Куда: TG_STEP_NOTIFY_CHAT_ID или user id аккаунта Telethon (сессия +7 910 360 68 01 и т.д.)."""
+    async def _get_notify_chat_id(self):
+        """Получить chat_id для уведомлений (TG_STEP_NOTIFY_CHAT_ID или user id из Telethon)."""
         chat_id = getattr(self.config, "tg_step_notify_chat_id", None)
         if not chat_id:
             try:
                 chat_id = await self.tg_service.get_me_user_id()
             except Exception as e:
                 logger.debug("Step notify: не удалось получить chat_id из Telethon: %s", e)
-            if not chat_id:
-                return
-        status = "OK" if success else "FAIL"
-        text = f"[TG Digest] Шаг {step_name}: канал {channel.name} — {status}. {message}"
-        for k, v in extra.items():
-            if v:
-                text += f" {k}={v}"
+        return chat_id
+
+    async def _notify_error_global(self, message: str) -> None:
+        """Отправляет уведомление об ошибке воркера (без привязки к каналу). Точный текст ошибки."""
+        chat_id = await self._get_notify_chat_id()
+        if not chat_id:
+            return
+        text = f"[TG Digest] Воркер не работает. Что произошло: {message}"
+        try:
+            await self.tg_bot.send_text(chat_id, text, parse_mode="")
+        except Exception as e:
+            logger.warning("Notify error send failed: %s", e)
+
+    async def _notify_step(
+        self,
+        channel: Channel,
+        step_name: str,
+        success: bool,
+        message: str,
+        no_messages: bool = False,
+        **extra: str,
+    ) -> None:
+        """Отправляет уведомление о шаге в Telegram.
+        - Если no_messages=True или сообщение «Новых сообщений нет» — отправляется чёткое: «Новых сообщений нет. Канал: …»
+        - Если success=False — отправляется точная ошибка: «Воркер не работает. Что произошло: …»
+        """
+        chat_id = await self._get_notify_chat_id()
+        if not chat_id:
+            return
+        if no_messages or (success and message.strip() == "Новых сообщений нет."):
+            text = f"[TG Digest] Новых сообщений нет. Канал: {channel.name}"
+        elif not success:
+            text = f"[TG Digest] Воркер не работает. Канал: {channel.name}, шаг {step_name}. Что произошло: {message}"
+        else:
+            text = f"[TG Digest] Канал {channel.name}, шаг {step_name}: {message}"
+            for k, v in extra.items():
+                if v:
+                    text += f" {k}={v}"
         try:
             await self.tg_bot.send_text(chat_id, text, parse_mode="")
         except Exception as e:
@@ -683,7 +707,7 @@ class DigestWorker:
                     step_name,
                     extra=_log_ctx(channel=channel, step=step_name),
                 )
-                await self._notify_step(channel, step_name, success=True, message="Новых сообщений нет.")
+                await self._notify_step(channel, step_name, success=True, message="Новых сообщений нет.", no_messages=True)
                 return
 
             self.db.update_last_msg_id(channel.peer_type, channel.id, max_msg_id, user_id=user_id)
@@ -961,11 +985,13 @@ class DigestWorker:
                     max_msg_id,
                     extra=_log_ctx(channel=channel, step=step_name),
                 )
-                await self._notify_step(channel, step_name, success=True, message="Новых сообщений нет.")
+                await self._notify_step(channel, step_name, success=True, message="Новых сообщений нет.", no_messages=True)
                 return None
             messages = self.db.get_messages_range(
                 channel.peer_type, channel.id, last_msg_id, max_msg_id
             )
+            user_id = getattr(channel, "user_id", None)
+            new_messages = len(messages)
             raw_digest = self._format_raw_digest(channel, messages, last_msg_id, max_msg_id)
             ocr_texts = self.db.get_ocr_text_for_range(
                 channel.peer_type, channel.id, last_msg_id, max_msg_id
@@ -1176,6 +1202,10 @@ class DigestWorker:
                 await self.run_once()
             except Exception as e:
                 logger.error(f"Ошибка в цикле: {e}")
+                try:
+                    await self._notify_error_global(str(e))
+                except Exception as notify_err:
+                    logger.warning("Не удалось отправить уведомление об ошибке: %s", notify_err)
             
             logger.info(f"Ожидание {interval_minutes} минут...")
             await asyncio.sleep(interval_minutes * 60)

@@ -79,6 +79,38 @@
             background: #1565c0;
         }
         
+        /* Tabs */
+        .tabs {
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            padding: 0 24px;
+            flex-shrink: 0;
+        }
+        
+        .tab {
+            padding: 14px 20px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #78909c;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .tab:hover {
+            color: #37474f;
+        }
+        
+        .tab.active {
+            color: #1976d2;
+            border-bottom-color: #1976d2;
+        }
+        
         /* Main container */
         .container {
             max-width: 900px;
@@ -237,20 +269,23 @@
     <!-- Header -->
     <header class="header">
         <div class="header-title">
-            <span class="material-icons">help_outline</span>
-            <span>Инструкции</span>
+            <span class="material-icons">settings</span>
+            <span>TG Digest System</span>
         </div>
         <div class="header-actions">
-            <a href="/channels" class="btn-header">
-                <span class="material-icons" style="font-size: 18px;">list</span>
-                Мои каналы
-            </a>
-            <a href="/" class="btn-header primary">
-                <span class="material-icons" style="font-size: 18px;">add</span>
-                Добавить канал
-            </a>
+            <button class="btn-header" onclick="window.location.reload()" title="Обновить">
+                <span class="material-icons" style="font-size: 18px;">refresh</span>
+            </button>
         </div>
     </header>
+    
+    <!-- Tabs -->
+    <div class="tabs">
+        <a href="/" class="tab">ДОБАВЛЕНИЕ КАНАЛА</a>
+        <a href="/channels" class="tab">МОИ КАНАЛЫ</a>
+        <a href="/prompts" class="tab">ПРОМПТЫ</a>
+        <a href="/instructions" class="tab active">ИНСТРУКЦИИ</a>
+    </div>
     
     <!-- Main content -->
     <div class="container">

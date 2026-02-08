@@ -1,0 +1,23 @@
+[Unit]
+Description=TG Digest Worker (digest generation)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ripas
+Group=ripas
+WorkingDirectory=/home/ripas/tg_digest_system/tg_digest_system/scripts
+Environment="PATH=/home/ripas/tg_digest_system/.venv/bin"
+# Цикл каждые 30 минут (--interval в минутах)
+ExecStart=/home/ripas/tg_digest_system/.venv/bin/python digest_worker.py --interval 30
+Restart=always
+RestartSec=30
+
+EnvironmentFile=-/home/ripas/tg_digest_system/.env
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tg_digest_worker
+
+[Install]
+WantedBy=multi-user.target

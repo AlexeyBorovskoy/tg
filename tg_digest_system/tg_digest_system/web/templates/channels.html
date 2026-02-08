@@ -373,20 +373,23 @@
     <!-- Header -->
     <header class="header">
         <div class="header-title">
-            <span class="material-icons">list</span>
-            <span>Мои каналы</span>
+            <span class="material-icons">settings</span>
+            <span>TG Digest System</span>
         </div>
         <div class="header-actions">
-            <a href="/instructions" class="btn-header">
-                <span class="material-icons" style="font-size: 18px;">help_outline</span>
-                Инструкции
-            </a>
-            <a href="/" class="btn-header">
-                <span class="material-icons" style="font-size: 18px;">add</span>
-                Добавить канал
-            </a>
+            <button class="btn-header" onclick="loadChannels()" title="Обновить">
+                <span class="material-icons" style="font-size: 18px;">refresh</span>
+            </button>
         </div>
     </header>
+    
+    <!-- Tabs -->
+    <div class="tabs">
+        <a href="/" class="tab">ДОБАВЛЕНИЕ КАНАЛА</a>
+        <a href="/channels" class="tab active">МОИ КАНАЛЫ</a>
+        <a href="/prompts" class="tab" id="promptsTabLink">ПРОМПТЫ</a>
+        <a href="/instructions" class="tab">ИНСТРУКЦИИ</a>
+    </div>
     
     <!-- Main content -->
     <div class="container">
@@ -512,6 +515,13 @@
                             <td>${channel.last_digest_at ? formatDate(channel.last_digest_at) : 'Нет'}</td>
                             <td>
                                 <div class="actions">
+                                    <a href="/prompts?channel_id=${channel.id}&user_telegram_id=${userTelegramId}" 
+                                       class="btn-action" 
+                                       title="Редактировать промпты"
+                                       style="text-decoration: none;">
+                                        <span class="material-icons" style="font-size: 16px;">edit</span>
+                                        Промпты
+                                    </a>
                                     ${channel.consolidated_doc_path ? `
                                     <a href="/api/channels/${channel.id}/document?user_telegram_id=${userTelegramId}" 
                                        class="btn-action" 
@@ -589,6 +599,21 @@
                 minute: '2-digit'
             });
         }
+        
+        // Обновляем активную вкладку
+        const currentPath = window.location.pathname;
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.classList.remove('active');
+            if (currentPath === '/' && tab.textContent.trim() === 'ДОБАВЛЕНИЕ КАНАЛА') {
+                tab.classList.add('active');
+            } else if (currentPath === '/channels' && tab.textContent.trim() === 'МОИ КАНАЛЫ') {
+                tab.classList.add('active');
+            } else if (currentPath === '/prompts' && tab.textContent.trim() === 'ПРОМПТЫ') {
+                tab.classList.add('active');
+            } else if (currentPath === '/instructions' && tab.textContent.trim() === 'ИНСТРУКЦИИ') {
+                tab.classList.add('active');
+            }
+        });
         
         // Автозагрузка при наличии user_telegram_id в URL
         window.addEventListener('DOMContentLoaded', () => {
