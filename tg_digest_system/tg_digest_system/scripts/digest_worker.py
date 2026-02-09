@@ -14,6 +14,11 @@ import pytz
 
 from config import Config, Channel, load_config, get_enabled_channels
 from config_db import merge_channels_from_sources
+from delivery_settings import (
+    load_delivery_settings,
+    get_delivery_settings_for_channel,
+    ChannelDeliverySettings,
+)
 import os
 from database import Database
 from telegram_client import TelegramService, TelegramBot
@@ -146,9 +151,23 @@ class DigestWorker:
                 # Сохраняем сообщение с user_id
                 await self.tg_service.save_message(message, channel, user_id=user_id)
                 
-                # Сохраняем медиа
+                # Сохраняем медиа для ВСЕХ сообщений с медиа (даже если сообщение уже есть в БД)
                 if message.media and self.config.defaults.ocr_enabled:
-                    await self.tg_service.save_media(message, channel)
+                    # Проверяем, есть ли уже медиа для этого сообщения с правильным user_id
+                    has_media = False
+                    if user_id is not None:
+                        with self.db.cursor() as cur:
+                            cur.execute("""
+                                SELECT 1 FROM tg.media 
+                                WHERE peer_type = %s AND peer_id = %s AND msg_id = %s AND user_id = %s
+                                LIMIT 1
+                            """, (channel.peer_type, channel.id, message.id, user_id))
+                            has_media = cur.fetchone() is not None
+                    else:
+                        has_media = self.db.has_media_for_message(channel.peer_type, channel.id, message.id)
+                    
+                    if not has_media:
+                        await self.tg_service.save_media(message, channel, user_id=user_id)
                 
                 new_messages += 1
                 max_msg_id = max(max_msg_id, message.id)
@@ -177,14 +196,14 @@ class DigestWorker:
         if new_messages > 0:
             logger.info(f"Собрано {new_messages} новых сообщений (до msg_id={max_msg_id})")
         
-        # 3. OCR для новых изображений
+        # 3. OCR для всех изображений без OCR (с учетом user_id)
         if self.ocr_service:
             # Проверяем, асинхронный ли это сервис
             if hasattr(self.ocr_service, 'process_pending_media_async'):
-                ocr_count = await self.ocr_service.process_pending_media_async(limit=50)
+                ocr_count = await self.ocr_service.process_pending_media_async(limit=50, user_id=user_id)
             else:
                 # Старый синхронный метод
-                ocr_count = self.ocr_service.process_pending_media(limit=50)
+                ocr_count = self.ocr_service.process_pending_media(limit=50, user_id=user_id)
             logger.info(f"OCR обработано: {ocr_count} изображений")
         
         # 4. Генерируем RAW дайджест
@@ -280,7 +299,7 @@ class DigestWorker:
             try:
                 index_digest_to_rag(
                     self.config, self.db,
-                    channel.peer_type, channel.id, digest_id, llm_digest
+                    channel.peer_type, channel.id, digest_id, llm_digest, user_id=user_id
                 )
             except Exception as e:
                 logger.warning(f"RAG index digest: {e}")
@@ -387,11 +406,12 @@ class DigestWorker:
             logger.info("Ежедневный дайджест записан в файл для GitLab: %s", digest_path)
         
         # RAG: индексируем дайджест
+        user_id = getattr(channel, 'user_id', None)
         if vec_schema_exists(self.db):
             try:
                 index_digest_to_rag(
                     self.config, self.db,
-                    channel.peer_type, channel.id, digest_id, llm_digest
+                    channel.peer_type, channel.id, digest_id, llm_digest, user_id=user_id
                 )
             except Exception as e:
                 logger.warning(f"RAG index daily digest: {e}")
@@ -547,12 +567,13 @@ class DigestWorker:
         if self.config.gitlab_enabled:
             self._files_to_push.append(channel.consolidated_doc_path)
 
+        user_id = getattr(channel, 'user_id', None)
         if vec_schema_exists(self.db):
             try:
                 index_consolidated_doc_to_rag(
                     self.config, self.db,
                     channel.peer_type, channel.id,
-                    channel.consolidated_doc_path, doc_content
+                    channel.consolidated_doc_path, doc_content, user_id=user_id
                 )
             except Exception as e:
                 logger.warning(f"RAG index consolidated_doc: {e}")
@@ -568,7 +589,21 @@ class DigestWorker:
         msg_to: int,
         changes_summary: str = "",
     ) -> None:
-        """Рассылает дайджест получателям; в сообщение включается явное указание чата и блок об изменениях в сводном документе по этому чату."""
+        """Рассылает дайджест получателям с учётом настроек доставки (БД для веб-каналов или config/digest_delivery.json)."""
+        # Каналы из веба (web_channels) имеют атрибуты delivery_* из БД
+        if getattr(channel, "delivery_importance", None) is not None:
+            delivery = ChannelDeliverySettings(
+                importance=channel.delivery_importance,
+                send_file=getattr(channel, "delivery_send_file", True),
+                send_text=getattr(channel, "delivery_send_text", True),
+                text_max_chars=getattr(channel, "delivery_text_max_chars", None),
+                summary_only=getattr(channel, "delivery_summary_only", False),
+            )
+        else:
+            delivery = get_delivery_settings_for_channel(
+                channel.id,
+                getattr(self, "_delivery_settings_cache", None),
+            )
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
         file_name = f"digest_{channel.id}_{msg_from}_{msg_to}_{ts}.md"
 
@@ -577,7 +612,12 @@ class DigestWorker:
             f"📊 *Дайджест по чату:* {channel.name}\n"
             f"Чат ID: `{channel.id}`\n\n"
         )
-        short_text = digest_text[:3500] if len(digest_text) > 3500 else digest_text
+        # Ограничение длины текста по настройкам доставки (ознакомительные чаты)
+        max_chars = delivery.text_max_chars
+        if max_chars is not None and delivery.summary_only:
+            short_text = (digest_text[:max_chars] + "…") if len(digest_text) > max_chars else digest_text
+        else:
+            short_text = digest_text[:3500] if len(digest_text) > 3500 else digest_text
         # Блок изменений и ссылка на инженерный документ — только при обновлении документа (раз в сутки)
         if changes_summary:
             doc_link = self._build_consolidated_doc_link(channel)
@@ -605,13 +645,18 @@ class DigestWorker:
         
         user_id = getattr(channel, 'user_id', None)
 
+        # Эффективные флаги: настройки по чату (digest_delivery.json) и получатель (recipient)
+        do_send_text = delivery.send_text
+        do_send_file = delivery.send_file
+
         for recipient in channel.recipients:
             if not recipient.telegram_id:
                 logger.debug(f"Пропуск получателя {recipient.name}: telegram_id не задан")
                 continue
+            send_text = do_send_text and recipient.send_text
+            send_file = do_send_file and recipient.send_file
             try:
-                # Отправляем текст
-                if recipient.send_text:
+                if send_text:
                     success = await self.tg_bot.send_text(
                         recipient.telegram_id, message_text, parse_mode="Markdown"
                     )
@@ -623,8 +668,7 @@ class DigestWorker:
                         user_id=user_id,
                     )
                 
-                # Отправляем файл
-                if recipient.send_file:
+                if send_file:
                     success = await self.tg_bot.send_document_bytes(
                         recipient.telegram_id,
                         file_data,
@@ -639,7 +683,10 @@ class DigestWorker:
                         user_id=user_id,
                     )
                 
-                logger.info(f"Доставлено {recipient.name} (ID: {recipient.telegram_id})")
+                logger.info(
+                    "Доставлено %s (ID: %s) [text=%s file=%s importance=%s]",
+                    recipient.name, recipient.telegram_id, send_text, send_file, delivery.importance,
+                )
                 
             except Exception as e:
                 logger.error(
@@ -788,7 +835,7 @@ class DigestWorker:
             await self._notify_step(channel, step_name, success=False, message=str(e))
 
     async def process_channel_step_media(self, channel: Channel) -> None:
-        """Шаг 2: только загрузка медиа в БД (по одному сообщению)."""
+        """Шаг 2: загрузка медиа в БД для ВСЕХ сообщений с медиа (даже если сообщения уже есть в БД)."""
         step_name = "media"
         logger.info(
             "Step %s started",
@@ -796,24 +843,54 @@ class DigestWorker:
             extra=_log_ctx(channel=channel, step=step_name),
         )
         try:
-            last_msg_id = 0
+            user_id = getattr(channel, 'user_id', None)
             total = 0
             failed = 0
+            
+            await self.tg_service.connect()
+            entity = await self.tg_service._client.get_entity(channel.id)
+            
+            # Обрабатываем ВСЕ сообщения с медиа (от старых к новым)
+            # Добавляем счетчик для логирования прогресса
+            processed_count = 0
             try:
-                async for message in self.tg_service.fetch_new_messages(channel, last_msg_id):
+                async for message in self.tg_service._client.iter_messages(entity, reverse=True, limit=None):
+                    processed_count += 1
+                    if processed_count % 100 == 0:
+                        logger.info(
+                            "Step %s: обработано %s сообщений, найдено медиа: %s, сохранено: %s",
+                            step_name, processed_count, total + failed, total,
+                            extra=_log_ctx(channel=channel, step=step_name),
+                        )
                     if not message.media:
                         continue
-                    if self.db.has_media_for_message(channel.peer_type, channel.id, message.id):
+                    
+                    # Проверяем, есть ли уже медиа для этого сообщения с правильным user_id
+                    has_media = False
+                    if user_id is not None:
+                        # Проверяем с учетом user_id
+                        with self.db.cursor() as cur:
+                            cur.execute("""
+                                SELECT 1 FROM tg.media 
+                                WHERE peer_type = %s AND peer_id = %s AND msg_id = %s AND user_id = %s
+                                LIMIT 1
+                            """, (channel.peer_type, channel.id, message.id, user_id))
+                            has_media = cur.fetchone() is not None
+                    else:
+                        has_media = self.db.has_media_for_message(channel.peer_type, channel.id, message.id)
+                    
+                    if has_media:
                         logger.debug(
-                            "Step %s: msg_id=%s уже есть медиа, пропуск",
-                            step_name,
-                            message.id,
+                            "Step %s: msg_id=%s уже есть медиа (user_id=%s), пропуск",
+                            step_name, message.id, user_id,
                             extra=_log_ctx(channel=channel, step=step_name, msg_id=message.id),
                         )
                         continue
+                    
                     try:
-                        media_id = await self.tg_service.save_media(message, channel)
-                        total += 1
+                        media_id = await self.tg_service.save_media(message, channel, user_id=user_id)
+                        if media_id:
+                            total += 1
                         logger.debug(
                             "Step %s: msg_id=%s media_id=%s OK",
                             step_name,
@@ -881,10 +958,11 @@ class DigestWorker:
             await self._notify_step(channel, step_name, success=True, message="OCR отключён.")
             return
         try:
+            user_id = getattr(channel, 'user_id', None)
             processed = 0
             failed = 0
             while True:
-                media_list = self.db.get_media_without_ocr(limit=1)
+                media_list = self.db.get_media_without_ocr(limit=1, user_id=user_id)
                 if not media_list:
                     break
                 m = media_list[0]
@@ -892,6 +970,7 @@ class DigestWorker:
                 msg_id = m["msg_id"]
                 peer_type = m["peer_type"]
                 peer_id = m["peer_id"]
+                media_user_id = m.get("user_id") or user_id
                 try:
                     file_data = m.get("file_data")
                     if file_data is not None:
@@ -918,6 +997,7 @@ class DigestWorker:
                         msg_id=msg_id,
                         ocr_text=text or "",
                         ocr_model=ocr_model,
+                        user_id=media_user_id,
                     )
                     processed += 1
                     logger.debug(
@@ -1064,6 +1144,8 @@ class DigestWorker:
     async def run_once(self, step: Optional[str] = None) -> None:
         """Один цикл обработки всех каналов. step: text|media|ocr|digest|all (None = all)."""
         self._files_to_push = []
+        # Кэш настроек доставки на цикл (config/digest_delivery.json)
+        self._delivery_settings_cache = load_delivery_settings()
         # Загружаем каналы из БД и файла (мультитенантность)
         merged_channels = merge_channels_from_sources(self.config)
         self.config.channels = merged_channels

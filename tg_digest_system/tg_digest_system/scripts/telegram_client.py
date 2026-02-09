@@ -145,9 +145,14 @@ class TelegramService:
         
         logger.debug(f"Сохранено сообщение {message.id} от {sender_name}")
     
-    async def save_media(self, message: Message, channel: ChannelConfig) -> Optional[int]:
+    async def save_media(self, message: Message, channel: ChannelConfig, user_id: Optional[int] = None) -> Optional[int]:
         """
         Сохраняет медиафайл из сообщения.
+        
+        Args:
+            message: Сообщение с медиа
+            channel: Конфигурация канала
+            user_id: ID пользователя (опционально)
         
         Returns:
             ID медиафайла в БД или None
@@ -206,6 +211,9 @@ class TelegramService:
             
             # Переименовываем временный файл в финальный
             if temp_file.exists():
+                # Если финальный файл уже существует, удаляем его перед переименованием
+                if file_path.exists():
+                    file_path.unlink()
                 temp_file.rename(file_path)
             
             # Сохраняем в БД (используем local_path для экономии памяти)
@@ -220,13 +228,15 @@ class TelegramService:
                 sha256=sha256,
                 local_path=str(file_path),
                 file_data=None,  # Не сохраняем в БД для экономии памяти
+                user_id=user_id,
             )
             
-            logger.debug(f"Сохранено медиа {file_name} для msg_id={message.id}")
+            logger.debug(f"Сохранено медиа {file_name} для msg_id={message.id} (user_id={user_id})")
             return media_id
             
         except Exception as e:
             logger.error(f"Ошибка сохранения медиа для msg_id={message.id}: {e}")
+            logger.exception("save_media traceback")
             return None
     
     def _detect_media_type(self, message: Message) -> str:
