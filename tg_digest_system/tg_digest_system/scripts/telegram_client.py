@@ -177,11 +177,15 @@ class TelegramService:
             temp_file = media_dir / f"temp_{message.id}"
             
             # Скачиваем напрямую в файл
+            logger.debug(f"Скачивание медиа для msg_id={message.id} в {temp_file}")
             await self._client.download_media(message, file=str(temp_file))
             
             if not temp_file.exists() or temp_file.stat().st_size == 0:
+                logger.warning(f"Медиа для msg_id={message.id} не скачалось или пустое")
                 temp_file.unlink(missing_ok=True)
                 return None
+            
+            logger.debug(f"Медиа для msg_id={message.id} скачано, размер: {temp_file.stat().st_size} байт")
             
             # Читаем файл для SHA256 и сохранения
             file_data = temp_file.read_bytes()
@@ -213,10 +217,15 @@ class TelegramService:
             if temp_file.exists():
                 # Если финальный файл уже существует, удаляем его перед переименованием
                 if file_path.exists():
+                    logger.debug(f"Файл {file_path} уже существует, удаляем перед переименованием")
                     file_path.unlink()
+                logger.debug(f"Переименование {temp_file} -> {file_path}")
                 temp_file.rename(file_path)
+            else:
+                logger.warning(f"Временный файл {temp_file} не существует после скачивания")
             
             # Сохраняем в БД (используем local_path для экономии памяти)
+            logger.debug(f"Сохранение медиа в БД для msg_id={message.id}, file_name={file_name}, user_id={user_id}")
             media_id = self.db.upsert_media(
                 peer_type=channel.peer_type,
                 peer_id=channel.id,
@@ -231,7 +240,7 @@ class TelegramService:
                 user_id=user_id,
             )
             
-            logger.debug(f"Сохранено медиа {file_name} для msg_id={message.id} (user_id={user_id})")
+            logger.info(f"Сохранено медиа {file_name} для msg_id={message.id} (user_id={user_id}), media_id={media_id}")
             return media_id
             
         except Exception as e:
