@@ -42,6 +42,11 @@ services:
       PGDATABASE: ${PGDATABASE:-tg_digest}
       PGUSER: ${PGUSER:-tg_digest}
       PGPASSWORD: ${PGPASSWORD}
+      AUTH_OWN_ENABLED: ${AUTH_OWN_ENABLED:-1}
+      BASE_URL: ${BASE_URL:-http://localhost:8000}
+      JWT_SECRET: ${JWT_SECRET:-}
+      YANDEX_OAUTH_CLIENT_ID: ${YANDEX_OAUTH_CLIENT_ID:-}
+      YANDEX_OAUTH_CLIENT_SECRET: ${YANDEX_OAUTH_CLIENT_SECRET:-}
     volumes:
       - ${EXISTING_PROMPTS_DIR:-../prompts}:/app/prompts:ro
       - ${EXISTING_DATA_DIR:-./data}/worker_data:/app/data:ro
@@ -54,6 +59,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
+      TG_STEP_NOTIFY_CHAT_ID: ${TG_STEP_NOTIFY_CHAT_ID:-}
       PGHOST: ${PGHOST}
       PGPORT: ${PGPORT:-5432}
       PGDATABASE: ${PGDATABASE:-tg_digest}

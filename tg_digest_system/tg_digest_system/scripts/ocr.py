@@ -101,17 +101,18 @@ class OCRService:
         
         return text
     
-    def process_pending_media(self, limit: int = 10) -> int:
+    def process_pending_media(self, limit: int = 10, user_id: Optional[int] = None) -> int:
         """
         Обрабатывает медиафайлы без OCR.
         
         Args:
             limit: Максимум файлов за раз
+            user_id: ID пользователя для фильтрации медиа
         
         Returns:
             Количество обработанных файлов
         """
-        media_list = self.db.get_media_without_ocr(limit=limit)
+        media_list = self.db.get_media_without_ocr(limit=limit, user_id=user_id)
         processed = 0
         
         for media in media_list:
@@ -132,6 +133,7 @@ class OCRService:
                 text, confidence = self.process_image(image_data)
                 
                 if text:
+                    media_user_id = media.get("user_id") or user_id
                     self.db.save_ocr_text(
                         media_id=media["id"],
                         peer_type=media["peer_type"],
@@ -140,6 +142,7 @@ class OCRService:
                         ocr_text=text,
                         ocr_model=f"tesseract-5 {self.languages}",
                         ocr_confidence=confidence,
+                        user_id=media_user_id,
                     )
                     processed += 1
                     logger.info(f"OCR: msg_id={media['msg_id']}, {len(text)} символов")

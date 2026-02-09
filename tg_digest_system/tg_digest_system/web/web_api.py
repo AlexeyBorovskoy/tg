@@ -31,7 +31,7 @@ import asyncio
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Depends, Request, Form, Header
+from fastapi import FastAPI, HTTPException, Depends, Request, Form, Header, Query
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -66,12 +66,9 @@ try:
         AuthUser,
         create_access_token,
         verify_access_token,
-        get_google_authorize_url,
         get_yandex_authorize_url,
-        exchange_google_code,
         exchange_yandex_code,
         token_from_header as auth_own_token_from_header,
-        GOOGLE_CLIENT_ID,
         YANDEX_CLIENT_ID,
     )
 except ImportError:
@@ -79,12 +76,9 @@ except ImportError:
     AuthUser = None
     create_access_token = None
     verify_access_token = None
-    get_google_authorize_url = None
     get_yandex_authorize_url = None
-    exchange_google_code = None
     exchange_yandex_code = None
     auth_own_token_from_header = None
-    GOOGLE_CLIENT_ID = ""
     YANDEX_CLIENT_ID = ""
 
 try:
@@ -107,6 +101,38 @@ AUTH_REQUIRED = AUTH_OWN_ENABLED or (AUTH_CHECK_ENABLED and AUTH_SERVICE_URL)
 
 # Имя cookie с access_token
 AUTH_COOKIE_NAME = "auth_token"
+
+# Пути, доступные без авторизации (весь остальной сервис закрыт идентификацией)
+_PUBLIC_PATHS = ("/login", "/auth/", "/logout", "/health")
+
+
+def _is_public_path(path: str) -> bool:
+    if path == "/login" or path == "/logout" or path == "/health":
+        return True
+    if path.startswith("/auth/"):
+        return True
+    return False
+
+
+@app.middleware("http")
+async def require_auth_middleware(request: Request, call_next):
+    """
+    Когда включена наша авторизация (AUTH_OWN_ENABLED), весь сервис закрыт идентификацией:
+    без валидного токена (cookie или Authorization) доступны только /login, /auth/*, /logout, /health.
+    """
+    if not AUTH_OWN_ENABLED:
+        return await call_next(request)
+    path = request.url.path.rstrip("/") or "/"
+    if _is_public_path(path):
+        return await call_next(request)
+    has_cookie = bool(request.cookies.get(AUTH_COOKIE_NAME))
+    has_bearer = (request.headers.get("authorization") or "").strip().lower().startswith("bearer ")
+    if has_cookie or has_bearer:
+        return await call_next(request)
+    next_url = quote(request.url.path, safe="")
+    if request.query_params:
+        next_url = quote(request.url.path + "?" + str(request.query_params), safe="")
+    return RedirectResponse(url=f"/login?next={next_url}", status_code=302)
 
 
 def _is_api_request(request: Request) -> bool:
@@ -283,6 +309,71 @@ def audit_log(
             conn.rollback()
 
 
+def list_users_with_identities(conn, audit_limit: int = 50):
+    """
+    Возвращает список пользователей с привязками OAuth и последние записи audit_log.
+    Для страницы управления пользователями. При отсутствии таблиц миграции 007 возвращает пустые списки.
+    """
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT u.id, u.telegram_id, u.name, u.email, u.is_active, u.created_at,
+                       ui.provider, ui.external_id, ui.email AS identity_email, ui.display_name, ui.linked_at
+                FROM users u
+                LEFT JOIN user_identities ui ON ui.user_id = u.id
+                ORDER BY u.id, ui.linked_at
+            """)
+            rows = cur.fetchall()
+    except Exception:
+        return {"users": [], "audit": []}
+    users_by_id = {}
+    for r in rows:
+        uid = r["id"]
+        if uid not in users_by_id:
+            users_by_id[uid] = {
+                "id": uid,
+                "telegram_id": r["telegram_id"],
+                "name": r.get("name"),
+                "email": r.get("email"),
+                "is_active": r.get("is_active", True),
+                "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+                "identities": [],
+            }
+        if r.get("provider"):
+            users_by_id[uid]["identities"].append({
+                "provider": r["provider"],
+                "email": r.get("identity_email"),
+                "display_name": r.get("display_name"),
+                "linked_at": r["linked_at"].isoformat() if r.get("linked_at") else None,
+            })
+    users_list = list(users_by_id.values())
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT al.id, al.user_id, al.action, al.at, al.details, al.ip
+                FROM audit_log al
+                ORDER BY al.at DESC
+                LIMIT %s
+            """, (audit_limit,))
+            audit_rows = cur.fetchall()
+    except Exception:
+        audit_list = []
+    else:
+        audit_list = [
+            {
+                "id": r["id"],
+                "user_id": r["user_id"],
+                "action": r["action"],
+                "at": r["at"].isoformat() if r.get("at") else None,
+                "details": r.get("details"),
+                "ip": str(r["ip"]) if r.get("ip") else None,
+            }
+            for r in audit_rows
+        ]
+    return {"users": users_list, "audit": audit_list}
+
+
 def get_or_create_user(conn, telegram_id: int, name: Optional[str] = None) -> int:
     """Получает или создаёт пользователя"""
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -316,9 +407,10 @@ async def check_chat_access(chat_id: int) -> tuple[bool, Optional[str], Optional
             ChannelInvalidError, ChatIdInvalidError, PeerIdInvalidError,
         )
         
-        api_id = int(os.environ.get("TG_API_ID", "0"))
-        api_hash = os.environ.get("TG_API_HASH", "")
-        session_file = os.environ.get("TG_SESSION_FILE", "")
+        api_id_str = (os.environ.get("TG_API_ID", "") or "").strip()
+        api_id = int(api_id_str) if api_id_str else 0
+        api_hash = (os.environ.get("TG_API_HASH", "") or "").strip()
+        session_file = (os.environ.get("TG_SESSION_FILE", "") or "").strip()
         
         if not api_id or not api_hash or not session_file:
             logger.error("Telegram credentials не настроены")
@@ -391,9 +483,10 @@ async def check_recipient_access(recipient_id: int) -> tuple[bool, Optional[str]
             ChannelInvalidError, ChatIdInvalidError,
         )
         
-        api_id = int(os.environ.get("TG_API_ID", "0"))
-        api_hash = os.environ.get("TG_API_HASH", "")
-        session_file = os.environ.get("TG_SESSION_FILE", "")
+        api_id_str = (os.environ.get("TG_API_ID", "") or "").strip()
+        api_id = int(api_id_str) if api_id_str else 0
+        api_hash = (os.environ.get("TG_API_HASH", "") or "").strip()
+        session_file = (os.environ.get("TG_SESSION_FILE", "") or "").strip()
         
         if not api_id or not api_hash or not session_file:
             return False, "Сервис не настроен для проверки Telegram."
@@ -408,6 +501,11 @@ async def check_recipient_access(recipient_id: int) -> tuple[bool, Optional[str]
             return True, None
         except (PeerIdInvalidError, UserIdInvalidError, ChannelInvalidError, ChatIdInvalidError):
             await client.disconnect()
+            # Для получателей делаем проверку более мягкой - если ID выглядит валидным, разрешаем
+            # Это может быть бот или пользователь, с которым система еще не взаимодействовала
+            if recipient_id > 0 and recipient_id < 2**31:  # Валидный положительный ID пользователя/бота
+                logger.info(f"Получатель {recipient_id} не найден в контактах, но ID выглядит валидным - разрешаем использование")
+                return True, None
             return False, (
                 f"Получатель с ID {recipient_id} не найден. "
                 "Укажите ваш Telegram ID (узнать: @userinfobot) или ID чата/бота, куда присылать дайджесты."
@@ -419,8 +517,14 @@ async def check_recipient_access(recipient_id: int) -> tuple[bool, Optional[str]
                 "Укажите личный ID пользователя или добавьте систему в чат."
             )
         except Exception as e:
-            logger.warning(f"Проверка получателя {recipient_id}: {e}")
+            error_msg = str(e)
             await client.disconnect()
+            # Если ошибка связана с тем, что сущность не найдена (бот не в контактах), разрешаем использование
+            if "Could not find the input entity" in error_msg or "not found" in error_msg.lower():
+                if recipient_id > 0 and recipient_id < 2**31:  # Валидный положительный ID
+                    logger.info(f"Получатель {recipient_id} не найден в контактах Telethon, но ID валидный - разрешаем использование")
+                    return True, None
+            logger.warning(f"Проверка получателя {recipient_id}: {e}")
             return False, (
                 f"Не удалось проверить получателя {recipient_id}. "
                 "Убедитесь, что ID указан верно (число, например 499412926)."
@@ -450,7 +554,6 @@ async def login_page(request: Request, next_url: Optional[str] = None, error_msg
             "next_url": next_url,
             "next_encoded": quote(next_url, safe=""),
             "error_msg": error_msg or request.query_params.get("error"),
-            "google_enabled": bool(GOOGLE_CLIENT_ID),
             "yandex_enabled": bool(YANDEX_CLIENT_ID),
         })
     if AUTH_CHECK_ENABLED:
@@ -497,48 +600,7 @@ async def login_submit(
     return response
 
 
-# OAuth: редирект на провайдера
-@app.get("/auth/google")
-async def auth_google_redirect(request: Request):
-    """Редирект на Google OAuth."""
-    if not AUTH_OWN_ENABLED or not get_google_authorize_url:
-        raise HTTPException(status_code=404, detail="OAuth не настроен")
-    from auth_own import BASE_URL
-    next_path = request.query_params.get("next", "/")
-    state = secrets.token_urlsafe(32)
-    redirect_uri = f"{BASE_URL}/auth/google/callback"
-    url = get_google_authorize_url(state, redirect_uri)
-    response = RedirectResponse(url=url, status_code=302)
-    response.set_cookie("oauth_state", state, max_age=600, path="/", httponly=True, samesite="lax")
-    response.set_cookie("oauth_next", next_path, max_age=600, path="/", httponly=True, samesite="lax")
-    return response
-
-
-@app.get("/auth/google/callback")
-async def auth_google_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None, db=Depends(get_db)):
-    """Callback после входа через Google: обмен code на токен, создание/поиск пользователя, наш JWT, cookie."""
-    if not AUTH_OWN_ENABLED or not exchange_google_code or not create_access_token:
-        raise HTTPException(status_code=404, detail="OAuth не настроен")
-    state_cookie = request.cookies.get("oauth_state")
-    next_path = request.cookies.get("oauth_next", "/")
-    if not state_cookie or state != state_cookie or not code:
-        return RedirectResponse(url=f"/login?error={quote('Ошибка входа через Google', safe='')}", status_code=302)
-    from auth_own import BASE_URL
-    redirect_uri = f"{BASE_URL}/auth/google/callback"
-    result = await exchange_google_code(code, redirect_uri)
-    if not result:
-        return RedirectResponse(url=f"/login?error={quote('Не удалось получить данные от Google', safe='')}", status_code=302)
-    external_id, email, display_name = result
-    user_id = get_or_create_user_by_oauth(db, "google", external_id, email, display_name)
-    token = create_access_token(user_id, email, display_name)
-    audit_log(db, user_id, "login", {"provider": "google", "email": email}, request)
-    response = RedirectResponse(url=next_path if next_path.startswith("/") else "/", status_code=302)
-    response.set_cookie(AUTH_COOKIE_NAME, token, max_age=3600, path="/", httponly=True, samesite="lax")
-    response.delete_cookie("oauth_state", path="/")
-    response.delete_cookie("oauth_next", path="/")
-    return response
-
-
+# OAuth: редирект на провайдера (только Яндекс)
 @app.get("/auth/yandex")
 async def auth_yandex_redirect(request: Request):
     """Редирект на Yandex OAuth."""
@@ -616,6 +678,32 @@ async def channels_page(
     })
 
 
+@app.get("/users", response_class=HTMLResponse)
+async def users_page(
+    request: Request,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
+    """Страница управления пользователями: список пользователей и аудит входа/выхода."""
+    data = list_users_with_identities(db, audit_limit=100)
+    return templates.TemplateResponse("users.html", {
+        "request": request,
+        "users": data["users"],
+        "audit": data["audit"],
+    })
+
+
+@app.get("/api/admin/users", response_class=JSONResponse)
+async def api_admin_users(
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
+    """Список пользователей с привязками OAuth и последние записи аудита. Доступ только после идентификации."""
+    if AUTH_REQUIRED and current_user is None:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+    return list_users_with_identities(db, audit_limit=100)
+
+
 @app.get("/instructions", response_class=HTMLResponse)
 async def instructions_page(
     request: Request,
@@ -640,11 +728,17 @@ async def prompts_page(
 
 
 @app.get("/api/check-chat", response_class=JSONResponse)
-async def api_check_chat(chat_id: str = Query(..., description="ID чата для проверки доступа")):
+async def api_check_chat(
+    request: Request,
+    chat_id: str = Query(..., description="ID чата для проверки доступа"),
+    current_user: Optional[str] = Depends(get_current_auth_user),
+):
     """
     Проверяет наличие и доступность чата/канала для системы (по факту ввода).
-    Возвращает: available, peer_type, name, message.
+    Доступ только после идентификации.
     """
+    if AUTH_REQUIRED and current_user is None:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
     try:
         cid = int(chat_id.strip())
     except (TypeError, ValueError):
@@ -667,7 +761,26 @@ async def api_check_chat(chat_id: str = Query(..., description="ID чата дл
                 "message": "ID чата не может быть нулём. Укажите ID канала (отрицательное число) или группы."
             }
         )
+    
+    # Если ID положительный и больше 0, пробуем также с отрицательным (для групп/супергрупп)
+    # Telegram API использует отрицательные ID для групп: -1000000000000 - group_id
+    # Но также может быть просто отрицательный ID типа -5228538198
+    has_access = False
+    peer_type = None
+    name = None
+    err = None
+    
+    # Сначала пробуем с исходным ID
     has_access, peer_type, name, err = await check_chat_access(cid)
+    
+    # Если не получилось и ID положительный, пробуем с отрицательным
+    if not has_access and cid > 0:
+        negative_id = -cid
+        logger.info(f"Пробуем отрицательный ID для группы: {negative_id}")
+        has_access, peer_type, name, err = await check_chat_access(negative_id)
+        if has_access:
+            # Обновляем сообщение, чтобы указать правильный ID
+            err = None
     if has_access:
         return {
             "available": True,
@@ -687,11 +800,16 @@ async def api_check_chat(chat_id: str = Query(..., description="ID чата дл
 
 
 @app.get("/api/check-recipient", response_class=JSONResponse)
-async def api_check_recipient(recipient_id: str = Query(..., description="ID получателя дайджестов")):
+async def api_check_recipient(
+    recipient_id: str = Query(..., description="ID получателя дайджестов"),
+    current_user: Optional[str] = Depends(get_current_auth_user),
+):
     """
     Проверяет доступность получателя для системы (по факту ввода).
-    Возвращает: available, message.
+    Доступ только после идентификации.
     """
+    if AUTH_REQUIRED and current_user is None:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
     try:
         rid = int(recipient_id.strip())
     except (TypeError, ValueError):
@@ -779,6 +897,11 @@ async def list_channels(
                         "access_method": ch.get('access_method', 'system_session'),
                         "access_status": ch.get('access_status', 'available'),
                         "consolidated_doc_path": ch.get('consolidated_doc_path'),
+                        "delivery_importance": ch.get('delivery_importance') or "important",
+                        "delivery_send_file": ch.get('delivery_send_file', True),
+                        "delivery_send_text": ch.get('delivery_send_text', True),
+                        "delivery_text_max_chars": ch.get('delivery_text_max_chars'),
+                        "delivery_summary_only": ch.get('delivery_summary_only', False),
                     }
                     for ch in channels
                 ]
@@ -838,6 +961,11 @@ async def create_channel(
     recipient_name: Optional[str] = Form(None),
     prompt_file: str = Form("prompts/digest_management.md"),
     poll_interval_minutes: int = Form(60),
+    delivery_importance: str = Form("important"),
+    delivery_send_file: str = Form("true"),
+    delivery_send_text: str = Form("true"),
+    delivery_text_max_chars: Optional[str] = Form(None),
+    delivery_summary_only: str = Form("false"),
     current_user: Optional[str] = Depends(get_current_auth_user),
     db=Depends(get_db),
 ):
@@ -902,14 +1030,27 @@ async def create_channel(
         consolidated_doc_path = f"docs/reference/{doc_name}.md"
         
         # Создаём запись в БД
+        _delivery_importance = delivery_importance if delivery_importance in ("important", "informational") else "important"
+        _delivery_send_file = delivery_send_file.lower() in ("1", "true", "yes", "on")
+        _delivery_send_text = delivery_send_text.lower() in ("1", "true", "yes", "on")
+        _delivery_text_max_chars = None
+        if delivery_text_max_chars and str(delivery_text_max_chars).strip():
+            try:
+                _delivery_text_max_chars = int(delivery_text_max_chars.strip())
+            except ValueError:
+                pass
+        _delivery_summary_only = delivery_summary_only.lower() in ("1", "true", "yes", "on")
+        
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 INSERT INTO web_channels (
                     user_id, telegram_chat_id, name, description, peer_type,
                     prompt_file, consolidated_doc_path, consolidated_doc_prompt_file,
                     poll_interval_minutes, enabled, recipient_telegram_id, recipient_name,
-                    access_method, access_status
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    access_method, access_status,
+                    delivery_importance, delivery_send_file, delivery_send_text,
+                    delivery_text_max_chars, delivery_summary_only
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             """, (
                 user_id,
@@ -925,7 +1066,12 @@ async def create_channel(
                 recip_id,
                 (recipient_name or "").strip() or f"User {recip_id}",
                 access_method,
-                access_status
+                access_status,
+                _delivery_importance,
+                _delivery_send_file,
+                _delivery_send_text,
+                _delivery_text_max_chars,
+                _delivery_summary_only,
             ))
             
             channel_id = cur.fetchone()['id']
@@ -992,10 +1138,15 @@ async def update_channel(
     name: Optional[str] = Form(None),
     recipient_telegram_id: Optional[int] = Form(None),
     recipient_name: Optional[str] = Form(None),
+    delivery_importance: Optional[str] = Form(None),
+    delivery_send_file: Optional[str] = Form(None),
+    delivery_send_text: Optional[str] = Form(None),
+    delivery_text_max_chars: Optional[str] = Form(None),
+    delivery_summary_only: Optional[str] = Form(None),
     current_user: Optional[str] = Depends(get_current_auth_user),
     db=Depends(get_db),
 ):
-    """Обновляет канал пользователя (название, получатель дайджестов)."""
+    """Обновляет канал пользователя (название, получатель, настройки доставки дайджеста)."""
     try:
         user_id = get_or_create_user(db, user_telegram_id, None)
         if name == "":
@@ -1014,6 +1165,25 @@ async def update_channel(
         if recipient_name is not None:
             updates.append("recipient_name = %s")
             params.append(recipient_name)
+        if delivery_importance is not None and delivery_importance in ("important", "informational"):
+            updates.append("delivery_importance = %s")
+            params.append(delivery_importance)
+        if delivery_send_file is not None:
+            updates.append("delivery_send_file = %s")
+            params.append(delivery_send_file.lower() in ("1", "true", "yes", "on"))
+        if delivery_send_text is not None:
+            updates.append("delivery_send_text = %s")
+            params.append(delivery_send_text.lower() in ("1", "true", "yes", "on"))
+        if delivery_text_max_chars is not None:
+            try:
+                v = int(delivery_text_max_chars.strip()) if delivery_text_max_chars.strip() else None
+                updates.append("delivery_text_max_chars = %s")
+                params.append(v)
+            except ValueError:
+                pass
+        if delivery_summary_only is not None:
+            updates.append("delivery_summary_only = %s")
+            params.append(delivery_summary_only.lower() in ("1", "true", "yes", "on"))
         
         if not updates:
             raise HTTPException(status_code=400, detail="Не указаны поля для обновления")
@@ -1025,7 +1195,9 @@ async def update_channel(
                 UPDATE web_channels 
                 SET {", ".join(updates)}, updated_at = now()
                 WHERE id = %s AND user_id = %s
-                RETURNING id, name, recipient_telegram_id, recipient_name
+                RETURNING id, name, recipient_telegram_id, recipient_name,
+                    delivery_importance, delivery_send_file, delivery_send_text,
+                    delivery_text_max_chars, delivery_summary_only
             """, tuple(params))
             
             row = cur.fetchone()
@@ -1047,6 +1219,11 @@ async def update_channel(
                 "name": row["name"],
                 "recipient_telegram_id": row["recipient_telegram_id"],
                 "recipient_name": row["recipient_name"],
+                "delivery_importance": row.get("delivery_importance") or "important",
+                "delivery_send_file": row.get("delivery_send_file", True),
+                "delivery_send_text": row.get("delivery_send_text", True),
+                "delivery_text_max_chars": row.get("delivery_text_max_chars"),
+                "delivery_summary_only": row.get("delivery_summary_only", False),
             }
         }
         

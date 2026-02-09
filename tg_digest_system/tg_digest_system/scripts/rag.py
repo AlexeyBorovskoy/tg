@@ -52,23 +52,25 @@ def insert_embeddings(
     content_text: str,
     embedding: list[float],
     chunk_index: int = 0,
+    user_id: Optional[int] = None,
 ) -> None:
     """Вставляет одну запись в vec.embeddings. Таблица и схема должны существовать."""
     vec_str = _embedding_to_str(embedding)
     with db.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO vec.embeddings (source_type, source_id, peer_type, peer_id, chunk_index, content_text, embedding)
-            VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
+            INSERT INTO vec.embeddings (source_type, source_id, peer_type, peer_id, chunk_index, content_text, embedding, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s::vector, %s)
             ON CONFLICT (source_type, source_id, chunk_index) DO UPDATE SET
                 content_text = EXCLUDED.content_text,
-                embedding = EXCLUDED.embedding
+                embedding = EXCLUDED.embedding,
+                user_id = EXCLUDED.user_id
             """,
-            (source_type, source_id, peer_type, peer_id, chunk_index, content_text, vec_str),
+            (source_type, source_id, peer_type, peer_id, chunk_index, content_text, vec_str, user_id),
         )
 
 
-def index_digest_to_rag(config: Config, db, peer_type: str, peer_id: int, digest_id: int, digest_llm: str) -> None:
+def index_digest_to_rag(config: Config, db, peer_type: str, peer_id: int, digest_id: int, digest_llm: str, user_id: Optional[int] = None) -> None:
     """
     Индексирует текст дайджеста в vec.embeddings (один чанк).
     При ошибке (нет vec/embeddings) логирует и выходит.
@@ -76,19 +78,27 @@ def index_digest_to_rag(config: Config, db, peer_type: str, peer_id: int, digest
     if not digest_llm or not digest_llm.strip():
         return
     try:
+        # Если user_id не передан, пытаемся получить из дайджеста
+        if user_id is None:
+            with db.cursor() as cur:
+                cur.execute("SELECT user_id FROM rpt.digests WHERE id = %s", (digest_id,))
+                row = cur.fetchone()
+                if row:
+                    user_id = row[0]
+        
         embs = embed_texts(config, [digest_llm[:6000]])
         if not embs:
             return
         insert_embeddings(
-            db, peer_type, peer_id, "digest", digest_id, digest_llm[:6000], embs[0], chunk_index=0
+            db, peer_type, peer_id, "digest", digest_id, digest_llm[:6000], embs[0], chunk_index=0, user_id=user_id
         )
-        logger.info(f"RAG: проиндексирован digest id={digest_id}")
+        logger.info(f"RAG: проиндексирован digest id={digest_id} (user_id={user_id})")
     except Exception as e:
         logger.warning(f"RAG index digest: {e}")
 
 
 def index_consolidated_doc_to_rag(
-    config: Config, db, peer_type: str, peer_id: int, doc_path: str, content: str
+    config: Config, db, peer_type: str, peer_id: int, doc_path: str, content: str, user_id: Optional[int] = None
 ) -> None:
     """
     Индексирует сводный документ в vec.embeddings (один чанк).
@@ -102,9 +112,9 @@ def index_consolidated_doc_to_rag(
         if not embs:
             return
         insert_embeddings(
-            db, peer_type, peer_id, "consolidated_doc", source_id, content[:6000], embs[0], chunk_index=0
+            db, peer_type, peer_id, "consolidated_doc", source_id, content[:6000], embs[0], chunk_index=0, user_id=user_id
         )
-        logger.info(f"RAG: проиндексирован consolidated_doc peer_id={peer_id}")
+        logger.info(f"RAG: проиндексирован consolidated_doc peer_id={peer_id} (user_id={user_id})")
     except Exception as e:
         logger.warning(f"RAG index consolidated_doc: {e}")
 

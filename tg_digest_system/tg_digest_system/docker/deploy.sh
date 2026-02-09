@@ -7,6 +7,10 @@
 #   ./deploy.sh --existing   — деплой с существующими БД, промптами и настройками
 #   ./deploy.sh --build      — пересобрать образы и поднять
 #   ./deploy.sh --migrate    — только выполнить миграции и выйти
+#   ./deploy.sh --stop       — только остановить сервисы (данные сохраняются)
+#
+# Данные: при down volumes НЕ удаляются — БД, логи, сессия Telethon, медиа сохраняются.
+# Не используйте «docker compose down -v» — это удалит все данные!
 # ==============================================================================
 set -e
 
@@ -25,6 +29,16 @@ if [ ! -f .env ]; then
   fi
 fi
 
+# secrets.env (опционально: OAuth, JWT и др.; если нет — создаём пустой из примера, чтобы compose не падал)
+if [ ! -f secrets.env ]; then
+  if [ -f secrets.env.example ]; then
+    echo "Создаю secrets.env из secrets.env.example (при необходимости заполните YANDEX_OAUTH_*, BASE_URL, JWT_SECRET)."
+    cp secrets.env.example secrets.env
+  else
+    touch secrets.env
+  fi
+fi
+
 set -a
 [ -f .env ] && source .env
 [ -f secrets.env ] && source secrets.env
@@ -33,11 +47,13 @@ set +a
 do_migrate_only=false
 do_build=false
 do_existing=false
+do_stop_only=false
 for arg in "$@"; do
   case "$arg" in
     --migrate)  do_migrate_only=true ;;
     --build)    do_build=true ;;
     --existing) do_existing=true ;;
+    --stop)     do_stop_only=true ;;
   esac
 done
 
@@ -65,8 +81,16 @@ if [ "$do_migrate_only" = true ]; then
   exit 0
 fi
 
+if [ "$do_stop_only" = true ]; then
+  echo "Останавливаем сервисы (данные в volumes сохраняются)..."
+  $COMPOSE_CMD $COMPOSE_FILES stop
+  echo "Готово. Для запуска снова: ./deploy.sh"
+  exit 0
+fi
+
 echo "Деплой TG Digest System ($COMPOSE_CMD)"
 echo "Root: $ROOT"
+echo "Данные в volumes (postgres_data, worker_data, worker_logs, worker_media) сохраняются."
 echo ""
 
 if [ "$do_build" = true ]; then
@@ -74,8 +98,9 @@ if [ "$do_build" = true ]; then
   $COMPOSE_CMD $COMPOSE_FILES build
 fi
 
-echo "Запуск сервисов (down затем up для перезапуска)..."
+echo "Останавливаем контейнеры (down без -v, данные не удаляются)..."
 $COMPOSE_CMD $COMPOSE_FILES down 2>/dev/null || true
+echo "Запуск сервисов..."
 $COMPOSE_CMD $COMPOSE_FILES up -d
 
 echo ""

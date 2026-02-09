@@ -160,22 +160,24 @@ class Database:
         sha256: Optional[str],
         file_data: Optional[bytes] = None,
         local_path: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> int:
         """Сохраняет медиафайл, возвращает ID"""
         with self.cursor() as cur:
             cur.execute("""
-                INSERT INTO tg.media (peer_type, peer_id, msg_id, media_type, file_name, mime_type, size_bytes, sha256, file_data, local_path)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO tg.media (peer_type, peer_id, msg_id, media_type, file_name, mime_type, size_bytes, sha256, file_data, local_path, user_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (peer_type, peer_id, msg_id, file_name)
                 DO UPDATE SET
                     mime_type = EXCLUDED.mime_type,
                     size_bytes = EXCLUDED.size_bytes,
                     sha256 = EXCLUDED.sha256,
                     file_data = EXCLUDED.file_data,
-                    local_path = EXCLUDED.local_path
+                    local_path = EXCLUDED.local_path,
+                    user_id = EXCLUDED.user_id
                 RETURNING id
             """, (peer_type, peer_id, msg_id, media_type, file_name, mime_type, size_bytes, sha256, 
-                  psycopg2.Binary(file_data) if file_data else None, local_path))
+                  psycopg2.Binary(file_data) if file_data else None, local_path, user_id))
             return cur.fetchone()[0]
     
     def has_media_for_message(self, peer_type: str, peer_id: int, msg_id: int) -> bool:
@@ -188,19 +190,32 @@ class Database:
             """, (peer_type, peer_id, msg_id))
             return cur.fetchone() is not None
 
-    def get_media_without_ocr(self, limit: int = 10) -> list[dict]:
+    def get_media_without_ocr(self, limit: int = 10, user_id: Optional[int] = None) -> list[dict]:
         """Получает медиафайлы без OCR-текста"""
         with self.cursor(dict_cursor=True) as cur:
-            cur.execute("""
-                SELECT m.id, m.peer_type, m.peer_id, m.msg_id, m.file_name, m.file_data, m.local_path
-                FROM tg.media m
-                LEFT JOIN tg.media_text mt ON m.id = mt.media_id
-                WHERE m.media_type = 'photo'
-                  AND mt.id IS NULL
-                  AND (m.file_data IS NOT NULL OR m.local_path IS NOT NULL)
-                ORDER BY m.created_at DESC
-                LIMIT %s
-            """, (limit,))
+            if user_id is not None:
+                cur.execute("""
+                    SELECT m.id, m.peer_type, m.peer_id, m.msg_id, m.file_name, m.file_data, m.local_path, m.user_id
+                    FROM tg.media m
+                    LEFT JOIN tg.media_text mt ON m.id = mt.media_id AND mt.user_id = m.user_id
+                    WHERE m.media_type = 'photo'
+                      AND m.user_id = %s
+                      AND mt.id IS NULL
+                      AND (m.file_data IS NOT NULL OR m.local_path IS NOT NULL)
+                    ORDER BY m.created_at DESC
+                    LIMIT %s
+                """, (user_id, limit))
+            else:
+                cur.execute("""
+                    SELECT m.id, m.peer_type, m.peer_id, m.msg_id, m.file_name, m.file_data, m.local_path, m.user_id
+                    FROM tg.media m
+                    LEFT JOIN tg.media_text mt ON m.id = mt.media_id
+                    WHERE m.media_type = 'photo'
+                      AND mt.id IS NULL
+                      AND (m.file_data IS NOT NULL OR m.local_path IS NOT NULL)
+                    ORDER BY m.created_at DESC
+                    LIMIT %s
+                """, (limit,))
             return cur.fetchall()
     
     def save_ocr_text(
@@ -212,26 +227,44 @@ class Database:
         ocr_text: str,
         ocr_model: str = "tesseract",
         ocr_confidence: Optional[float] = None,
+        user_id: Optional[int] = None,
     ) -> None:
         """Сохраняет OCR-текст"""
         with self.cursor() as cur:
+            # Если user_id не передан, получаем его из media
+            if user_id is None:
+                cur.execute("SELECT user_id FROM tg.media WHERE id = %s", (media_id,))
+                result = cur.fetchone()
+                if result:
+                    user_id = result[0]
+            
             # Проверяем существование записи
-            cur.execute("SELECT id FROM tg.media_text WHERE media_id = %s", (media_id,))
+            if user_id is not None:
+                cur.execute("SELECT id FROM tg.media_text WHERE media_id = %s AND user_id = %s", (media_id, user_id))
+            else:
+                cur.execute("SELECT id FROM tg.media_text WHERE media_id = %s", (media_id,))
             existing = cur.fetchone()
             
             if existing:
                 # Обновляем существующую запись
-                cur.execute("""
-                    UPDATE tg.media_text
-                    SET ocr_text = %s, ocr_model = %s, ocr_confidence = %s, updated_at = now()
-                    WHERE media_id = %s
-                """, (ocr_text, ocr_model, ocr_confidence, media_id))
+                if user_id is not None:
+                    cur.execute("""
+                        UPDATE tg.media_text
+                        SET ocr_text = %s, ocr_model = %s, ocr_confidence = %s, updated_at = now(), user_id = %s
+                        WHERE media_id = %s AND user_id = %s
+                    """, (ocr_text, ocr_model, ocr_confidence, user_id, media_id, user_id))
+                else:
+                    cur.execute("""
+                        UPDATE tg.media_text
+                        SET ocr_text = %s, ocr_model = %s, ocr_confidence = %s, updated_at = now()
+                        WHERE media_id = %s
+                    """, (ocr_text, ocr_model, ocr_confidence, media_id))
             else:
                 # Создаем новую запись
                 cur.execute("""
-                    INSERT INTO tg.media_text (media_id, peer_type, peer_id, msg_id, ocr_text, ocr_model, ocr_confidence)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """, (media_id, peer_type, peer_id, msg_id, ocr_text, ocr_model, ocr_confidence))
+                    INSERT INTO tg.media_text (media_id, peer_type, peer_id, msg_id, ocr_text, ocr_model, ocr_confidence, user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (media_id, peer_type, peer_id, msg_id, ocr_text, ocr_model, ocr_confidence, user_id))
     
     def get_ocr_by_image_hash(self, image_hash: str) -> Optional[str]:
         """

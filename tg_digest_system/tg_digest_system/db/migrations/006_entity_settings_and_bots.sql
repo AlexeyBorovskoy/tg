@@ -24,6 +24,7 @@ COMMENT ON TABLE entity_settings IS 'Настройки пользователе
 COMMENT ON COLUMN entity_settings.entity_type IS 'user=users.id, channel=web_channels.id, bot=bots.id, system=глобальные';
 COMMENT ON COLUMN entity_settings.entity_id IS '0 для system, иначе id из соответствующей таблицы';
 
+DROP TRIGGER IF EXISTS trg_entity_settings_updated_at ON entity_settings;
 CREATE TRIGGER trg_entity_settings_updated_at BEFORE UPDATE ON entity_settings
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -45,6 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_bots_user ON bots(user_id);
 COMMENT ON TABLE bots IS 'Боты: token_ref — имя переменной в secrets.env (например TG_BOT_TOKEN или BOT_1_TOKEN)';
 COMMENT ON COLUMN bots.token_ref IS 'Ключ в secrets.env, откуда брать токен бота';
 
+DROP TRIGGER IF EXISTS trg_bots_updated_at ON bots;
 CREATE TRIGGER trg_bots_updated_at BEFORE UPDATE ON bots
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

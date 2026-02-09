@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Пользователи — TG Digest{% endblock %}
+{% block tab_users %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Пользователи</h1>
+    <p>Список пользователей системы и последние действия (вход, выход, изменения).</p>
+</div>
+
+<div class="content-card">
+    <h2 style="font-size: 18px; margin-bottom: 16px;">Пользователи</h2>
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            <thead>
+                <tr style="border-bottom: 2px solid #e0e0e0; text-align: left;">
+                    <th style="padding: 10px 12px;">ID</th>
+                    <th style="padding: 10px 12px;">Telegram ID</th>
+                    <th style="padding: 10px 12px;">Имя</th>
+                    <th style="padding: 10px 12px;">Email</th>
+                    <th style="padding: 10px 12px;">OAuth</th>
+                    <th style="padding: 10px 12px;">Создан</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 10px 12px;">{{ u.id }}</td>
+                    <td style="padding: 10px 12px;">{{ u.telegram_id or '—' }}</td>
+                    <td style="padding: 10px 12px;">{{ u.name or '—' }}</td>
+                    <td style="padding: 10px 12px;">{{ u.email or (u.identities[0].email if u.identities else '—') }}</td>
+                    <td style="padding: 10px 12px;">
+                        {% for id in u.identities %}
+                        <span style="display: inline-block; margin-right: 6px;">{{ id.provider }}{% if id.email %} ({{ id.email }}){% endif %}</span>
+                        {% endfor %}
+                        {% if not u.identities %}—{% endif %}
+                    </td>
+                    <td style="padding: 10px 12px;">{{ u.created_at[:19] if u.created_at else '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not users %}
+                <tr><td colspan="6" style="padding: 16px; color: #757575;">Нет пользователей.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="content-card">
+    <h2 style="font-size: 18px; margin-bottom: 16px;">Журнал действий (аудит)</h2>
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            <thead>
+                <tr style="border-bottom: 2px solid #e0e0e0; text-align: left;">
+                    <th style="padding: 10px 12px;">Время</th>
+                    <th style="padding: 10px 12px;">User ID</th>
+                    <th style="padding: 10px 12px;">Действие</th>
+                    <th style="padding: 10px 12px;">Детали</th>
+                    <th style="padding: 10px 12px;">IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in audit %}
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 10px 12px;">{{ a.at[:19] if a.at else '—' }}</td>
+                    <td style="padding: 10px 12px;">{{ a.user_id or '—' }}</td>
+                    <td style="padding: 10px 12px;">{{ a.action }}</td>
+                    <td style="padding: 10px 12px;">{{ a.details or '—' }}</td>
+                    <td style="padding: 10px 12px;">{{ a.ip or '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not audit %}
+                <tr><td colspan="5" style="padding: 16px; color: #757575;">Нет записей аудита. Примените миграцию 007 к БД.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Digest delivery settings",
+  "description": "Настройки отправки дайджестов по каждому подконтрольному чату: важные (полный дайджест) и ознакомительные (кратко/без файла)",
+  "type": "object",
+  "properties": {
+    "defaults": {
+      "type": "object",
+      "description": "Значения по умолчанию для чатов, не перечисленных в channels",
+      "properties": {
+        "importance": {
+          "type": "string",
+          "enum": ["important", "informational"],
+          "default": "important",
+          "description": "important = полный дайджест (текст + файл), informational = ознакомительный"
+        },
+        "send_file": { "type": "boolean", "default": true },
+        "send_text": { "type": "boolean", "default": true },
+        "text_max_chars": {
+          "type": ["integer", "null"],
+          "description": "Ограничение длины текста в сообщении (для ознакомительных)"
+        },
+        "summary_only": {
+          "type": "boolean",
+          "default": false,
+          "description": "Только краткое резюме в сообщении (с учётом text_max_chars)"
+        }
+      }
+    },
+    "channels": {
+      "type": "object",
+      "description": "Ключ — Telegram ID чата (строка, например -1002700886173)",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "importance": { "type": "string", "enum": ["important", "informational"] },
+          "send_file": { "type": "boolean" },
+          "send_text": { "type": "boolean" },
+          "text_max_chars": { "type": ["integer", "null"] },
+          "summary_only": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

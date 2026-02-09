@@ -853,17 +853,31 @@ class DigestWorker:
             # Обрабатываем ВСЕ сообщения с медиа (от старых к новым)
             # Добавляем счетчик для логирования прогресса
             processed_count = 0
+            media_found_count = 0
             try:
+                logger.info(
+                    "Step %s: начинаем итерацию сообщений",
+                    step_name,
+                    extra=_log_ctx(channel=channel, step=step_name),
+                )
                 async for message in self.tg_service._client.iter_messages(entity, reverse=True, limit=None):
                     processed_count += 1
                     if processed_count % 100 == 0:
                         logger.info(
                             "Step %s: обработано %s сообщений, найдено медиа: %s, сохранено: %s",
-                            step_name, processed_count, total + failed, total,
+                            step_name, processed_count, media_found_count, total,
                             extra=_log_ctx(channel=channel, step=step_name),
                         )
                     if not message.media:
                         continue
+                    
+                    media_found_count += 1
+                    if media_found_count <= 5:  # Логируем первые 5 медиа для отладки
+                        logger.info(
+                            "Step %s: найдено медиа в msg_id=%s (всего найдено: %s)",
+                            step_name, message.id, media_found_count,
+                            extra=_log_ctx(channel=channel, step=step_name, msg_id=message.id),
+                        )
                     
                     # Проверяем, есть ли уже медиа для этого сообщения с правильным user_id
                     has_media = False
@@ -879,6 +893,12 @@ class DigestWorker:
                     else:
                         has_media = self.db.has_media_for_message(channel.peer_type, channel.id, message.id)
                     
+                    logger.info(
+                        "Step %s: msg_id=%s, has_media=%s (user_id=%s)",
+                        step_name, message.id, has_media, user_id,
+                        extra=_log_ctx(channel=channel, step=step_name, msg_id=message.id),
+                    )
+                    
                     if has_media:
                         logger.debug(
                             "Step %s: msg_id=%s уже есть медиа (user_id=%s), пропуск",
@@ -887,6 +907,11 @@ class DigestWorker:
                         )
                         continue
                     
+                    logger.info(
+                        "Step %s: вызываем save_media для msg_id=%s (user_id=%s)",
+                        step_name, message.id, user_id,
+                        extra=_log_ctx(channel=channel, step=step_name, msg_id=message.id),
+                    )
                     try:
                         media_id = await self.tg_service.save_media(message, channel, user_id=user_id)
                         if media_id:

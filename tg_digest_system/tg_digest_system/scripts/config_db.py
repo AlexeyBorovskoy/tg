@@ -216,6 +216,12 @@ def load_channels_from_db(config: Config) -> List[Channel]:
                 # Сохраняем user_id в канале (через атрибут)
                 channel.user_id = row['user_id']
                 channel.user_telegram_id = row['user_telegram_id']
+                # Настройки доставки дайджеста (миграция 008)
+                channel.delivery_importance = row.get('delivery_importance') or 'important'
+                channel.delivery_send_file = row.get('delivery_send_file', True)
+                channel.delivery_send_text = row.get('delivery_send_text', True)
+                channel.delivery_text_max_chars = row.get('delivery_text_max_chars')
+                channel.delivery_summary_only = row.get('delivery_summary_only', False)
                 
                 channels.append(channel)
         

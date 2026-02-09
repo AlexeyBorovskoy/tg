@@ -1,0 +1,23 @@
+{
+  "defaults": {
+    "importance": "important",
+    "send_file": true,
+    "send_text": true,
+    "text_max_chars": null,
+    "summary_only": false
+  },
+  "channels": {
+    "-1002700886173": {
+      "importance": "important",
+      "send_file": true,
+      "send_text": true
+    },
+    "-1001234567890": {
+      "importance": "informational",
+      "send_file": false,
+      "send_text": true,
+      "text_max_chars": 500,
+      "summary_only": true
+    }
+  }
+}

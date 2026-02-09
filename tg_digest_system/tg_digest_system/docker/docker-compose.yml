@@ -7,14 +7,12 @@
 # Деплой: см. deploy.sh и DEPLOY.md
 # ==============================================================================
 
-version: "3.8"
-
 services:
   # ---------------------------------------------------------------------------
-  # PostgreSQL Database
+  # PostgreSQL Database (с pgvector для RAG)
   # ---------------------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: tg_digest_postgres
     restart: unless-stopped
     environment:
@@ -39,7 +37,7 @@ services:
   # Миграции БД (001–005). Запускается после postgres, затем завершается.
   # ---------------------------------------------------------------------------
   migrate:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: tg_digest_migrate
     restart: "no"
     depends_on:
@@ -50,20 +48,21 @@ services:
       PGPORT: "5432"
       PGDATABASE: ${PGDATABASE:-tg_digest}
       PGUSER: ${PGUSER:-tg_digest}
-      PGPASSWORD: ${PGPASSWORD}
+      PGPASSWORD: ${PGPASSWORD:-tg_digest_local}
     volumes:
+      - ../db/schema.sql:/schema.sql:ro
       - ../db/migrations:/migrations:ro
-    command: >
-      sh -c "
-      set -e;
-      for f in /migrations/001_add_user_id.sql /migrations/002_add_user_sessions.sql
-               /migrations/003_add_prompt_texts.sql /migrations/004_add_prompts_table.sql
-               /migrations/005_prompt_library.sql /migrations/006_entity_settings_and_bots.sql
-               /migrations/007_oauth_identities_audit.sql; do
-        [ -f \"$$f\" ] && echo \"Running $$f\" && psql -v ON_ERROR_STOP=1 -h $$PGHOST -U $$PGUSER -d $$PGDATABASE -f \"$$f\";
-      done;
-      echo Migrations done.
-      "
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "Applying base schema if needed..."
+        psql -v ON_ERROR_STOP=1 -h $$PGHOST -U $$PGUSER -d $$PGDATABASE -f /schema.sql || true
+        for f in /migrations/001_add_user_id.sql /migrations/002_add_user_sessions.sql /migrations/003_add_prompt_texts.sql /migrations/004_add_prompts_table.sql /migrations/005_prompt_library.sql /migrations/006_entity_settings_and_bots.sql /migrations/007_oauth_identities_audit.sql /migrations/008_delivery_settings.sql; do
+          [ -f "$$f" ] && echo "Running $$f" && psql -v ON_ERROR_STOP=1 -h $$PGHOST -U $$PGUSER -d $$PGDATABASE -f "$$f"
+        done
+        echo Migrations done.
     networks:
       - tg_digest_net
 
@@ -81,6 +80,9 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    env_file:
+      - .env
+      - secrets.env
     environment:
       PGHOST: postgres
       PGPORT: "5432"
@@ -88,18 +90,19 @@ services:
       PGUSER: ${PGUSER:-tg_digest}
       PGPASSWORD: ${PGPASSWORD}
       PROMPTS_DIR: /app/prompts
-      TG_API_ID: ${TG_API_ID:-}
-      TG_API_HASH: ${TG_API_HASH:-}
+      # Telegram credentials загружаются из secrets.env через env_file
       TG_SESSION_FILE: /app/data/telethon.session
       REPO_DIR: ${REPO_DIR:-/app/repo}
+      # Авторизация: OAuth (Яндекс) + свои JWT — BASE_URL, JWT_SECRET, YANDEX_OAUTH_* только из env_file (secrets.env)
+      AUTH_OWN_ENABLED: ${AUTH_OWN_ENABLED:-1}
     volumes:
       - ../prompts:/app/prompts:ro
-      - worker_data:/app/data:ro
+      - worker_data:/app/data:rw
       - ..:/app/repo:ro
     ports:
       - "${WEB_PORT:-8000}:8000"
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
       start_period: 15s
@@ -119,11 +122,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    env_file:
+      - .env
+      - secrets.env
     environment:
-      # Telegram (заполните в .env для работы воркера)
-      TG_API_ID: ${TG_API_ID:-}
-      TG_API_HASH: ${TG_API_HASH:-}
-      TG_BOT_TOKEN: ${TG_BOT_TOKEN:-}
+      # Telegram (загружается из secrets.env через env_file)
       TG_SESSION_FILE: /app/data/telethon.session
       # PostgreSQL
       PGHOST: postgres
@@ -131,11 +134,9 @@ services:
       PGDATABASE: ${PGDATABASE:-tg_digest}
       PGUSER: ${PGUSER:-tg_digest}
       PGPASSWORD: ${PGPASSWORD}
-      # OpenAI
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
-      OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-2000}
-      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-0.1}
+      # OpenAI и прокси загружаются из secrets.env через env_file:
+      # OPENAI_API_KEY, OPENAI_MODEL, OPENAI_MAX_TOKENS, OPENAI_TEMPERATURE
+      # HTTPS_PROXY, HTTP_PROXY
       # Пути
       CONFIG_FILE: /app/config/channels.json
       PROMPTS_DIR: /app/prompts
@@ -151,6 +152,8 @@ services:
       GITLAB_SSH_KEY: ${GITLAB_SSH_KEY:-}
       # Для GitLab push: repo_dir должен указывать на монтированный репо (с .git)
       REPO_DIR: ${REPO_DIR:-/app/repo}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Для доступа к хосту из контейнера
     volumes:
       # Конфигурация и промпты из репо (../ от docker/)
       - ../config:/app/config:ro
@@ -180,31 +183,15 @@ services:
     container_name: tg_digest_auth
     profiles:
       - tools
+    env_file:
+      - .env
+      - secrets.env
     environment:
-      TG_API_ID: ${TG_API_ID}
-      TG_API_HASH: ${TG_API_HASH}
       TG_SESSION_FILE: /app/data/telethon.session
     volumes:
       - worker_data:/app/data
     entrypoint: python
-    command: ["-c", "
-import asyncio
-from telethon import TelegramClient
-import os
-
-async def auth():
-    client = TelegramClient(
-        os.environ['TG_SESSION_FILE'],
-        int(os.environ['TG_API_ID']),
-        os.environ['TG_API_HASH']
-    )
-    await client.start()
-    me = await client.get_me()
-    print(f'Авторизован как: {me.first_name} (ID: {me.id})')
-    await client.disconnect()
-
-asyncio.run(auth())
-"]
+    command: ["/app/scripts/auth_telethon.py"]
     stdin_open: true
     tty: true
     networks:

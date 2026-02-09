@@ -177,16 +177,21 @@ def load_config(config_path: Optional[str] = None) -> Config:
     )
     
     # Собираем Config из env
+    # Telegram API credentials (handle empty strings)
+    tg_api_id_str = (os.environ.get("TG_API_ID", "") or "").strip()
+    tg_api_id = int(tg_api_id_str) if tg_api_id_str else 0
+    tg_api_hash = (os.environ.get("TG_API_HASH", "") or "").strip()
+    
     config = Config(
         channels=channels,
         defaults=defaults,
         
         # Telegram
-        tg_api_id=int(os.environ.get("TG_API_ID", "0")),
-        tg_api_hash=os.environ.get("TG_API_HASH", ""),
+        tg_api_id=tg_api_id,
+        tg_api_hash=tg_api_hash,
         tg_bot_token=os.environ.get("TG_BOT_TOKEN", ""),
         tg_session_file=os.environ.get("TG_SESSION_FILE", "/app/data/telethon.session"),
-        tg_step_notify_chat_id=int(os.environ.get("TG_STEP_NOTIFY_CHAT_ID", "0")) or None,
+        tg_step_notify_chat_id=int((os.environ.get("TG_STEP_NOTIFY_CHAT_ID", "0") or "0").strip()) or None,
         
         # OpenAI (или совместимый API: Artemox и т.д.)
         openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
@@ -233,8 +238,9 @@ def _validate_config(config: Config) -> None:
     if not config.tg_api_hash:
         errors.append("TG_API_HASH не установлен")
     
-    if not config.tg_bot_token:
-        errors.append("TG_BOT_TOKEN не установлен")
+    # TG_BOT_TOKEN опционален (используется только для уведомлений)
+    # if not config.tg_bot_token:
+    #     errors.append("TG_BOT_TOKEN не установлен")
     
     if not config.openai_api_key:
         errors.append("OPENAI_API_KEY не установлен")

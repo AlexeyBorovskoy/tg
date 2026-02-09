@@ -175,12 +175,13 @@ class UnifiedOCRService:
         """
         logger.debug(f"OCR result ready for cache: hash={image_hash[:8]}..., len={len(text)}")
     
-    async def process_pending_media_async(self, limit: int = 10) -> int:
+    async def process_pending_media_async(self, limit: int = 10, user_id: Optional[int] = None) -> int:
         """
         Асинхронная обработка медиафайлов без OCR.
         
         Args:
             limit: Максимум файлов за раз
+            user_id: ID пользователя для фильтрации медиа
         
         Returns:
             Количество обработанных файлов
@@ -188,7 +189,7 @@ class UnifiedOCRService:
         import asyncio
         from pathlib import Path
         
-        media_list = self.db.get_media_without_ocr(limit=limit)
+        media_list = self.db.get_media_without_ocr(limit=limit, user_id=user_id)
         processed = 0
         
         for media in media_list:
@@ -209,6 +210,7 @@ class UnifiedOCRService:
                 text, metadata = await self.process_image(image_data)
                 
                 if text:
+                    media_user_id = media.get("user_id") or user_id
                     self.db.save_ocr_text(
                         media_id=media["id"],
                         peer_type=media["peer_type"],
@@ -217,6 +219,7 @@ class UnifiedOCRService:
                         ocr_text=text,
                         ocr_model=f"{metadata.get('provider', 'unknown')}",
                         ocr_confidence=metadata.get("confidence"),
+                        user_id=media_user_id,
                     )
                     processed += 1
                     logger.info(

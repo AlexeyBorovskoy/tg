@@ -1,0 +1,75 @@
+#!/bin/bash
+# Скрипт для синхронизации промптов через API внутри контейнера web
+# Использование: docker exec tg_digest_web bash /app/scripts/sync_prompts_in_container.sh
+
+cd /app/web
+python3 << 'EOF'
+import os
+import sys
+from pathlib import Path
+
+# Добавляем путь к web_api
+sys.path.insert(0, '/app/web')
+
+# Импортируем необходимые модули
+from web_api import app
+from fastapi.testclient import TestClient
+
+# Создаём тестового клиента
+client = TestClient(app)
+
+# Получаем токен из переменной окружения или используем фиктивный (для теста)
+# В реальности нужно использовать реальный токен авторизации
+# Но для синхронизации промптов можно использовать прямой доступ к БД
+
+# Вместо этого используем прямой доступ к БД
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+prompts_dir = Path(os.environ.get("PROMPTS_DIR", "/app/prompts"))
+if not prompts_dir.exists():
+    print(f"Папка промптов не найдена: {prompts_dir}")
+    sys.exit(1)
+
+conn = psycopg2.connect(
+    host=os.environ.get("PGHOST", "postgres"),
+    port=int(os.environ.get("PGPORT", "5432")),
+    database=os.environ.get("PGDATABASE", "tg_digest"),
+    user=os.environ.get("PGUSER", "tg_digest"),
+    password=os.environ.get("PGPASSWORD", ""),
+)
+
+synced = []
+try:
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        for ext in ("*.md", "*.txt"):
+            for p in sorted(prompts_dir.glob(ext)):
+                rel = f"prompts/{p.name}"
+                try:
+                    body = p.read_text(encoding="utf-8")
+                except Exception as e:
+                    print(f"Пропуск {p}: {e}")
+                    continue
+                prompt_type = "consolidated" if "consolidated" in p.name.lower() else "digest"
+                name = p.stem.replace("_", " ").replace("-", " ").title()
+                cur.execute("""
+                    INSERT INTO prompt_library (name, prompt_type, file_path, body)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (file_path) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        prompt_type = EXCLUDED.prompt_type,
+                        body = EXCLUDED.body,
+                        updated_at = now()
+                """, (name, prompt_type, rel, body))
+                synced.append({"file_path": rel, "name": name, "prompt_type": prompt_type})
+    conn.commit()
+    print(f"Выгружено в prompt_library: {len(synced)} шаблонов")
+    for s in synced:
+        print(f"  - {s['file_path']} ({s['prompt_type']})")
+except Exception as e:
+    conn.rollback()
+    print(f"Ошибка: {e}")
+    sys.exit(1)
+finally:
+    conn.close()
+EOF

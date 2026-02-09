@@ -1,6 +1,6 @@
 # Авторизация в TG Digest System
 
-## Вариант 1: Своя авторизация (OAuth Google/Яндекс + свои JWT)
+## Вариант 1: Своя авторизация (OAuth Яндекс + свои JWT)
 
 **Наш сервис сам делает OAuth и выдаёт свои токены.** Рекомендуемый вариант.
 
@@ -9,15 +9,14 @@
 - **AUTH_OWN_ENABLED=1** — включить свою авторизацию.
 - **BASE_URL** — публичный URL приложения (для redirect_uri OAuth), например `https://digest.example.com`.
 - **JWT_SECRET** — секрет для подписи JWT (длинная случайная строка). Без неё при каждом перезапуске токены станут недействительны.
-- **GOOGLE_OAUTH_CLIENT_ID**, **GOOGLE_OAUTH_CLIENT_SECRET** — из Google Cloud Console (OAuth 2.0 Client).
-- **YANDEX_OAUTH_CLIENT_ID**, **YANDEX_OAUTH_CLIENT_SECRET** — из [Yandex OAuth](https://oauth.yandex.com/).
+- **YANDEX_OAUTH_CLIENT_ID**, **YANDEX_OAUTH_CLIENT_SECRET** — из [OAuth Яндекс](https://oauth.yandex.com/).
 
-В Google Console и Yandex OAuth нужно добавить redirect_uri: `{BASE_URL}/auth/google/callback` и `{BASE_URL}/auth/yandex/callback`.
+В кабинете OAuth Яндекс нужно добавить redirect_uri: `{BASE_URL}/auth/yandex/callback`.
 
 ### Поток
 
-1. Пользователь нажимает «Войти через Google» или «Войти через Яндекс» на странице `/login`.
-2. Редирект на провайдера → вход → callback на наш `/auth/google/callback` или `/auth/yandex/callback`.
+1. Пользователь нажимает «Войти через Яндекс» на странице `/login`.
+2. Редирект на Яндекс → вход → callback на наш `/auth/yandex/callback`.
 3. Backend обменивает `code` на данные пользователя (external_id, email, имя), находит или создаёт запись в **users** и **user_identities**, выдаёт **наш JWT** (access_token), ставит cookie `auth_token`, пишет в **audit_log** событие `login`.
 4. Дальше все запросы проверяются по нашему JWT (заголовок `Authorization` или cookie). Выход — `/logout`, в audit_log пишется `logout`.
 
@@ -30,8 +29,8 @@
 
 ### Код
 
-- **`web/auth_own.py`** — JWT (create_access_token, verify_access_token), OAuth URL и обмен code (Google, Yandex).
-- **`web_api.py`** — маршруты `/auth/google`, `/auth/google/callback`, `/auth/yandex`, `/auth/yandex/callback`; зависимость `get_current_auth_user` при `AUTH_OWN_ENABLED` проверяет наш JWT и возвращает `AuthUser(user_id, email)`; хелперы `get_or_create_user_by_oauth`, `audit_log`, вызовы аудита в ключевых эндпоинтах.
+- **`web/auth_own.py`** — JWT (create_access_token, verify_access_token), OAuth URL и обмен code (Яндекс).
+- **`web_api.py`** — маршруты `/auth/yandex`, `/auth/yandex/callback`; зависимость `get_current_auth_user` при `AUTH_OWN_ENABLED` проверяет наш JWT и возвращает `AuthUser(user_id, email)`; хелперы `get_or_create_user_by_oauth`, `audit_log`, вызовы аудита в ключевых эндпоинтах.
 
 ---
 
@@ -78,6 +77,6 @@
   - **POST /login** — при включённом auth: приём `username`, `password`, вызов auth `/login`, установка cookie `auth_token` (HttpOnly, 1 ч), редирект на `next` или `/`.
   - **GET /logout** — удаление cookie `auth_token`, редирект на `/`.
 
-Защищённые маршруты (при включённой авторизации — своей или внешней): `/`, `/channels`, `/prompts`, `/instructions`, все `/api/*` кроме `/api/check-chat`, `/api/check-recipient`, `/health`. Публичные: `/login`, `/logout`, `/auth/google`, `/auth/google/callback`, `/auth/yandex`, `/auth/yandex/callback`, `/api/check-chat`, `/api/check-recipient`, `/health`.
+Защищённые маршруты (при включённой авторизации — своей или внешней): `/`, `/channels`, `/prompts`, `/instructions`, все `/api/*` кроме `/api/check-chat`, `/api/check-recipient`, `/health`. Публичные: `/login`, `/logout`, `/auth/yandex`, `/auth/yandex/callback`, `/api/check-chat`, `/api/check-recipient`, `/health`.
 
 Приоритет: если **AUTH_OWN_ENABLED=1**, используется наша проверка JWT и при необходимости OAuth; иначе при **AUTH_CHECK_ENABLED=1** — внешний auth-сервис. Если оба выключены, `get_current_auth_user` возвращает `None` и проверка не выполняется.

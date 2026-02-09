@@ -25,6 +25,7 @@ COMMENT ON COLUMN channel_prompts.prompt_type IS 'Тип промпта: digest 
 COMMENT ON COLUMN channel_prompts.is_default IS 'Является ли промпт используемым по умолчанию для этого типа';
 
 -- Триггер для обновления updated_at
+DROP TRIGGER IF EXISTS trg_channel_prompts_updated_at ON channel_prompts;
 CREATE TRIGGER trg_channel_prompts_updated_at BEFORE UPDATE ON channel_prompts
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

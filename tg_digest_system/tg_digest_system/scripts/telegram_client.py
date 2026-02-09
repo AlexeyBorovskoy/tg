@@ -157,12 +157,16 @@ class TelegramService:
         Returns:
             ID медиафайла в БД или None
         """
+        logger.info(f"save_media вызван для msg_id={message.id}, user_id={user_id}")
         if not message.media:
+            logger.debug(f"msg_id={message.id} не имеет медиа")
             return None
         
         # Определяем тип медиа
         media_type = self._detect_media_type(message)
+        logger.info(f"msg_id={message.id}, media_type={media_type}")
         if media_type == "other":
+            logger.debug(f"msg_id={message.id}, media_type=other, пропуск")
             return None
         
         await self.connect()

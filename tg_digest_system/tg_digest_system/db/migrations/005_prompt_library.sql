@@ -19,5 +19,6 @@ COMMENT ON TABLE prompt_library IS 'Библиотека шаблонов про
 COMMENT ON COLUMN prompt_library.file_path IS 'Относительный путь к файлу (например prompts/digest_management.md)';
 COMMENT ON COLUMN prompt_library.body IS 'Содержимое промпта';
 
+DROP TRIGGER IF EXISTS trg_prompt_library_updated_at ON prompt_library;
 CREATE TRIGGER trg_prompt_library_updated_at BEFORE UPDATE ON prompt_library
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

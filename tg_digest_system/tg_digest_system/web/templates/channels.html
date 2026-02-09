@@ -474,6 +474,22 @@
             color: #757575;
             margin-top: 4px;
         }
+        
+        .delivery-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .delivery-important {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+        .delivery-informational {
+            background: #f5f5f5;
+            color: #616161;
+        }
     </style>
 </head>
 <body>
@@ -552,6 +568,31 @@
                         <label for="editRecipientName">Имя получателя (необязательно)</label>
                         <input type="text" id="editRecipientName" placeholder="Имя получателя" />
                     </div>
+                    <fieldset class="delivery-settings" style="margin: 1rem 0; padding: 1rem; border: 1px solid #e0e0e0; border-radius: 4px;">
+                        <legend>Доставка дайджеста</legend>
+                        <div class="form-group">
+                            <label for="editDeliveryImportance">Важность чата</label>
+                            <select id="editDeliveryImportance">
+                                <option value="important">Важный — полный дайджест (текст + файл)</option>
+                                <option value="informational">Ознакомительный — кратко, без файла</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="editDeliverySendText" checked /> Отправлять текст
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="editDeliverySendFile" checked /> Отправлять файл
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="editDeliverySummaryOnly" /> Только краткое резюме
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="editDeliveryTextMaxChars">Макс. символов в сообщении (для ознакомительных, необязательно)</label>
+                            <input type="number" id="editDeliveryTextMaxChars" placeholder="Например: 500" min="0" style="max-width: 120px;" />
+                        </div>
+                    </fieldset>
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
                         <button type="button" class="btn btn-primary" id="editModalSubmit">Сохранить</button>
@@ -567,6 +608,7 @@
                             <th>Тип</th>
                             <th>Сообщений</th>
                             <th>Получатель</th>
+                            <th>Доставка</th>
                             <th>Доступ</th>
                             <th>Статус</th>
                             <th>Последний дайджест</th>
@@ -636,6 +678,11 @@
                             <td>${channel.peer_type}</td>
                             <td>${channel.total_messages || 0}</td>
                             <td>${channel.recipient_name || channel.recipient_telegram_id}</td>
+                            <td>
+                                <span class="delivery-badge ${(channel.delivery_importance || 'important') === 'informational' ? 'delivery-informational' : 'delivery-important'}">
+                                    ${(channel.delivery_importance || 'important') === 'informational' ? 'Ознакомительный' : 'Важный'}
+                                </span>
+                            </td>
                             <td>
                                 <span class="access-method">
                                     ✓ Доступен
@@ -728,6 +775,11 @@
             document.getElementById('editChannelName').value = channel.name || '';
             document.getElementById('editRecipientTelegramId').value = channel.recipient_telegram_id || '';
             document.getElementById('editRecipientName').value = channel.recipient_name || '';
+            document.getElementById('editDeliveryImportance').value = channel.delivery_importance || 'important';
+            document.getElementById('editDeliverySendText').checked = channel.delivery_send_text !== false;
+            document.getElementById('editDeliverySendFile').checked = channel.delivery_send_file !== false;
+            document.getElementById('editDeliverySummaryOnly').checked = channel.delivery_summary_only === true;
+            document.getElementById('editDeliveryTextMaxChars').value = channel.delivery_text_max_chars != null ? channel.delivery_text_max_chars : '';
             document.getElementById('editModal').classList.add('show');
         }
         
@@ -756,6 +808,12 @@
             if (name) formData.append('name', name);
             formData.append('recipient_telegram_id', recipientTelegramId);
             formData.append('recipient_name', recipientName || '');
+            formData.append('delivery_importance', document.getElementById('editDeliveryImportance').value);
+            formData.append('delivery_send_text', document.getElementById('editDeliverySendText').checked ? 'true' : 'false');
+            formData.append('delivery_send_file', document.getElementById('editDeliverySendFile').checked ? 'true' : 'false');
+            formData.append('delivery_summary_only', document.getElementById('editDeliverySummaryOnly').checked ? 'true' : 'false');
+            const textMaxChars = document.getElementById('editDeliveryTextMaxChars').value.trim();
+            if (textMaxChars) formData.append('delivery_text_max_chars', textMaxChars);
             
             try {
                 const response = await fetch(`/api/channels/${channelId}`, {

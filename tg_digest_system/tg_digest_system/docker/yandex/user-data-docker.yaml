@@ -1,0 +1,17 @@
+#cloud-config
+# User-data для ВМ Yandex Cloud: установка Docker при первом запуске.
+# Использование: yc compute instance create ... --metadata-from-file user-data=user-data-docker.yaml
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - docker-compose
+  - git
+  - curl
+
+runcmd:
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker ubuntu || true
