@@ -232,11 +232,13 @@ def _validate_config(config: Config) -> None:
     """Проверяет корректность конфигурации"""
     errors = []
     
-    if not config.tg_api_id:
-        errors.append("TG_API_ID не установлен")
-    
-    if not config.tg_api_hash:
-        errors.append("TG_API_HASH не установлен")
+    # Для мультитенантного режима глобальные TG_API_ID/TG_API_HASH могут отсутствовать.
+    # В этом случае credentials берутся из user_telegram_credentials для каждого user_id.
+    if not config.tg_api_id or not config.tg_api_hash:
+        logger.warning(
+            "Глобальные TG_API_ID/TG_API_HASH не заданы. "
+            "Будут использоваться пользовательские credentials из БД (если настроены)."
+        )
     
     # TG_BOT_TOKEN опционален (используется только для уведомлений)
     # if not config.tg_bot_token:

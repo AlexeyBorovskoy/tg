@@ -92,7 +92,7 @@
             <div class="user-input">
                 <div>
                     <label for="userTelegramId">Ваш Telegram ID:</label>
-                    <input type="number" id="userTelegramId" placeholder="499412926" value="{{ remote_user if remote_user and remote_user.isdigit() else '' }}" />
+                    <input type="number" id="userTelegramId" placeholder="499412926" value="{{ user_telegram_id if user_telegram_id else (remote_user if remote_user and remote_user.isdigit() else '') }}" />
                 </div>
                 <button type="button" class="btn-load" id="btnLoad">
                     <span class="material-icons" style="font-size: 18px;">refresh</span>
@@ -296,6 +296,8 @@
         const uidParam = urlParams.get('user_telegram_id');
         if (uidParam) {
             userTelegramIdEl.value = uidParam;
+            loadLibrary();
+        } else if (userTelegramIdEl.value) {
             loadLibrary();
         }
     </script>

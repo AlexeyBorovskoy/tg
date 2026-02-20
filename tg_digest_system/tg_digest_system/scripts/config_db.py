@@ -177,17 +177,57 @@ def load_channels_from_db(config: Config) -> List[Channel]:
         
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Получаем только активные каналы
-            cur.execute("""
-                SELECT 
-                    wc.*,
-                    u.telegram_id as user_telegram_id
-                FROM web_channels wc
-                JOIN users u ON u.id = wc.user_id
-                WHERE wc.enabled = true
-                ORDER BY wc.created_at
-            """)
-            
-            rows = cur.fetchall()
+            try:
+                cur.execute("""
+                    SELECT
+                        wc.*,
+                        u.telegram_id AS user_telegram_id,
+                        utc.tg_api_id,
+                        utc.tg_api_hash,
+                        utc.tg_phone,
+                        COALESCE(
+                            utc.tg_session_file,
+                            '/app/data/user-sessions/user_' || wc.user_id::text || '.session'
+                        ) AS tg_session_file,
+                        ubc.bot_token AS user_bot_token
+                    FROM web_channels wc
+                    JOIN users u ON u.id = wc.user_id
+                    LEFT JOIN user_telegram_credentials utc
+                        ON utc.user_id = wc.user_id
+                       AND utc.is_active = true
+                    LEFT JOIN LATERAL (
+                        SELECT b.bot_token
+                        FROM user_bot_credentials b
+                        WHERE b.user_id = wc.user_id
+                          AND b.is_active = true
+                        ORDER BY b.is_default DESC, b.updated_at DESC, b.id DESC
+                        LIMIT 1
+                    ) ubc ON true
+                    WHERE wc.enabled = true
+                    ORDER BY wc.created_at
+                """)
+                rows = cur.fetchall()
+            except Exception as e:
+                logger.warning(
+                    "Расширенные runtime-таблицы пользователей недоступны (%s). "
+                    "Используем совместимый запрос web_channels/users.",
+                    e,
+                )
+                cur.execute("""
+                    SELECT
+                        wc.*,
+                        u.telegram_id AS user_telegram_id,
+                        NULL::INTEGER AS tg_api_id,
+                        NULL::TEXT AS tg_api_hash,
+                        NULL::TEXT AS tg_phone,
+                        NULL::TEXT AS tg_session_file,
+                        NULL::TEXT AS user_bot_token
+                    FROM web_channels wc
+                    JOIN users u ON u.id = wc.user_id
+                    WHERE wc.enabled = true
+                    ORDER BY wc.created_at
+                """)
+                rows = cur.fetchall()
             
             for row in rows:
                 # Создаём получателя
@@ -216,6 +256,12 @@ def load_channels_from_db(config: Config) -> List[Channel]:
                 # Сохраняем user_id в канале (через атрибут)
                 channel.user_id = row['user_id']
                 channel.user_telegram_id = row['user_telegram_id']
+                # Персональные Telegram runtime credentials пользователя (если настроены)
+                channel.user_tg_api_id = row.get('tg_api_id')
+                channel.user_tg_api_hash = row.get('tg_api_hash')
+                channel.user_tg_phone = row.get('tg_phone')
+                channel.user_tg_session_file = row.get('tg_session_file')
+                channel.user_bot_token = row.get('user_bot_token')
                 # Настройки доставки дайджеста (миграция 008)
                 channel.delivery_importance = row.get('delivery_importance') or 'important'
                 channel.delivery_send_file = row.get('delivery_send_file', True)

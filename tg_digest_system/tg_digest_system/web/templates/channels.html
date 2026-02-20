@@ -874,6 +874,10 @@
             if (userId) {
                 userTelegramIdInput.value = userId;
                 loadChannels();
+                return;
+            }
+            if (userTelegramIdInput.value) {
+                loadChannels();
             }
         });
     </script>

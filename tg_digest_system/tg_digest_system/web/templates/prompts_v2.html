@@ -684,6 +684,9 @@
         const urlParams = new URLSearchParams(window.location.search);
         let channelId = urlParams.get('channel_id');
         let userTelegramId = urlParams.get('user_telegram_id');
+        if (!userTelegramId) {
+            userTelegramId = '{{ user_telegram_id }}';
+        }
 
         let currentPromptType = 'digest'; // 'digest' или 'consolidated'
         let currentPromptId = null;

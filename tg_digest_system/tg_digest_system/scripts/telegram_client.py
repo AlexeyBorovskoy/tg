@@ -31,32 +31,71 @@ class TelegramService:
         self.config = config
         self.db = db
         self._client: Optional[TelegramClient] = None
+        self._clients: dict[str, TelegramClient] = {}
     
-    async def connect(self) -> None:
-        """Подключается к Telegram"""
-        if self._client is not None and self._client.is_connected():
-            return
-        
-        session_path = Path(self.config.tg_session_file)
+    def _resolve_channel_credentials(self, channel: Optional[ChannelConfig]) -> tuple[Optional[int], int, str, str]:
+        """
+        Выбирает credentials для канала:
+        1) пользовательские (если есть в channel.user_tg_*)
+        2) системные из env/config
+        """
+        user_id = getattr(channel, "user_id", None) if channel is not None else None
+        api_id = getattr(channel, "user_tg_api_id", None) if channel is not None else None
+        api_hash = getattr(channel, "user_tg_api_hash", None) if channel is not None else None
+        session_file = getattr(channel, "user_tg_session_file", None) if channel is not None else None
+
+        resolved_api_id = int(api_id) if api_id else self.config.tg_api_id
+        resolved_api_hash = (api_hash or self.config.tg_api_hash or "").strip()
+        resolved_session_file = (session_file or self.config.tg_session_file or "").strip()
+        return user_id, resolved_api_id, resolved_api_hash, resolved_session_file
+
+    async def connect(
+        self,
+        *,
+        user_id: Optional[int] = None,
+        api_id: Optional[int] = None,
+        api_hash: Optional[str] = None,
+        session_file: Optional[str] = None,
+    ) -> TelegramClient:
+        """Подключается к Telegram и возвращает клиент (общий или пользовательский)."""
+        resolved_api_id = int(api_id) if api_id else self.config.tg_api_id
+        resolved_api_hash = (api_hash or self.config.tg_api_hash or "").strip()
+        resolved_session_file = (session_file or self.config.tg_session_file or "").strip()
+
+        if not resolved_api_id or not resolved_api_hash or not resolved_session_file:
+            raise ValueError("Telegram credentials не настроены: api_id/api_hash/session_file")
+
+        session_path = Path(resolved_session_file)
         session_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        self._client = TelegramClient(
+
+        client_key = f"{user_id or 0}:{session_path}"
+        existing = self._clients.get(client_key)
+        if existing is not None and existing.is_connected():
+            self._client = existing
+            return existing
+
+        client = TelegramClient(
             str(session_path),
-            self.config.tg_api_id,
-            self.config.tg_api_hash,
+            resolved_api_id,
+            resolved_api_hash,
         )
-        
-        await self._client.start()
-        me = await self._client.get_me()
-        logger.info(f"Подключено к Telegram как: {me.first_name} (ID: {me.id})")
+        await client.start()
+        me = await client.get_me()
+        logger.info(
+            "Подключено к Telegram как: %s (ID: %s), user_id=%s",
+            me.first_name,
+            me.id,
+            user_id,
+        )
+        self._clients[client_key] = client
+        self._client = client
+        return client
 
     async def get_me_user_id(self) -> Optional[int]:
         """Возвращает user id аккаунта Telethon (для уведомлений в «свой» чат)."""
-        await self.connect()
-        if self._client is None:
-            return None
+        client = await self.connect()
         try:
-            me = await self._client.get_me()
+            me = await client.get_me()
             return me.id if me else None
         except Exception as e:
             logger.warning("get_me_user_id: %s", e)
@@ -64,9 +103,15 @@ class TelegramService:
 
     async def disconnect(self) -> None:
         """Отключается от Telegram"""
-        if self._client:
-            await self._client.disconnect()
-            logger.debug("Отключено от Telegram")
+        for key, client in list(self._clients.items()):
+            try:
+                if client.is_connected():
+                    await client.disconnect()
+                    logger.debug("Отключено от Telegram (%s)", key)
+            except Exception:
+                logger.exception("Ошибка отключения Telegram клиента %s", key)
+        self._clients.clear()
+        self._client = None
     
     async def fetch_new_messages(
         self,
@@ -83,17 +128,23 @@ class TelegramService:
         Yields:
             Message: Сообщения Telegram
         """
-        await self.connect()
+        user_id, api_id, api_hash, session_file = self._resolve_channel_credentials(channel)
+        client = await self.connect(
+            user_id=user_id,
+            api_id=api_id,
+            api_hash=api_hash,
+            session_file=session_file,
+        )
         
         try:
-            entity = await self._client.get_entity(channel.id)
+            entity = await client.get_entity(channel.id)
             logger.info(f"Получаем сообщения из {channel.name} (ID: {channel.id}) после msg_id={last_msg_id}")
             
             # Получаем сообщения
             # Используем iter_messages без reverse, чтобы получить все сообщения
             # Telethon автоматически обрабатывает пагинацию
             count = 0
-            async for message in self._client.iter_messages(
+            async for message in client.iter_messages(
                 entity,
                 min_id=last_msg_id,
                 reverse=False,  # От новых к старым (получаем все)
@@ -157,19 +208,21 @@ class TelegramService:
         Returns:
             ID медиафайла в БД или None
         """
-        logger.info(f"save_media вызван для msg_id={message.id}, user_id={user_id}")
         if not message.media:
-            logger.debug(f"msg_id={message.id} не имеет медиа")
             return None
         
         # Определяем тип медиа
         media_type = self._detect_media_type(message)
-        logger.info(f"msg_id={message.id}, media_type={media_type}")
         if media_type == "other":
-            logger.debug(f"msg_id={message.id}, media_type=other, пропуск")
             return None
         
-        await self.connect()
+        channel_user_id, api_id, api_hash, session_file = self._resolve_channel_credentials(channel)
+        client = await self.connect(
+            user_id=channel_user_id,
+            api_id=api_id,
+            api_hash=api_hash,
+            session_file=session_file,
+        )
         
         try:
             # Оптимизация: сохраняем медиа на диск вместо загрузки в память
@@ -181,15 +234,11 @@ class TelegramService:
             temp_file = media_dir / f"temp_{message.id}"
             
             # Скачиваем напрямую в файл
-            logger.debug(f"Скачивание медиа для msg_id={message.id} в {temp_file}")
-            await self._client.download_media(message, file=str(temp_file))
+            await client.download_media(message, file=str(temp_file))
             
             if not temp_file.exists() or temp_file.stat().st_size == 0:
-                logger.warning(f"Медиа для msg_id={message.id} не скачалось или пустое")
                 temp_file.unlink(missing_ok=True)
                 return None
-            
-            logger.debug(f"Медиа для msg_id={message.id} скачано, размер: {temp_file.stat().st_size} байт")
             
             # Читаем файл для SHA256 и сохранения
             file_data = temp_file.read_bytes()
@@ -219,17 +268,9 @@ class TelegramService:
             
             # Переименовываем временный файл в финальный
             if temp_file.exists():
-                # Если финальный файл уже существует, удаляем его перед переименованием
-                if file_path.exists():
-                    logger.debug(f"Файл {file_path} уже существует, удаляем перед переименованием")
-                    file_path.unlink()
-                logger.debug(f"Переименование {temp_file} -> {file_path}")
                 temp_file.rename(file_path)
-            else:
-                logger.warning(f"Временный файл {temp_file} не существует после скачивания")
             
             # Сохраняем в БД (используем local_path для экономии памяти)
-            logger.debug(f"Сохранение медиа в БД для msg_id={message.id}, file_name={file_name}, user_id={user_id}")
             media_id = self.db.upsert_media(
                 peer_type=channel.peer_type,
                 peer_id=channel.id,
@@ -244,7 +285,7 @@ class TelegramService:
                 user_id=user_id,
             )
             
-            logger.info(f"Сохранено медиа {file_name} для msg_id={message.id} (user_id={user_id}), media_id={media_id}")
+            logger.debug(f"Сохранено медиа {file_name} для msg_id={message.id} (user_id={user_id})")
             return media_id
             
         except Exception as e:
@@ -278,9 +319,18 @@ class TelegramBot:
     def __init__(self, config: Config):
         self.config = config
         self.bot_token = config.tg_bot_token
-        self._base_url = f"https://api.telegram.org/bot{self.bot_token}"
     
-    async def send_text(self, chat_id: int, text: str, parse_mode: str = "Markdown") -> bool:
+    def _base_url(self, bot_token: Optional[str] = None) -> str:
+        token = (bot_token or self.bot_token or "").strip()
+        return f"https://api.telegram.org/bot{token}"
+    
+    async def send_text(
+        self,
+        chat_id: int,
+        text: str,
+        parse_mode: str = "Markdown",
+        bot_token: Optional[str] = None,
+    ) -> bool:
         """Отправляет текстовое сообщение"""
         import aiohttp
         
@@ -288,7 +338,12 @@ class TelegramBot:
         if len(text) > 4096:
             text = text[:4090] + "\n..."
         
-        url = f"{self._base_url}/sendMessage"
+        token = (bot_token or self.bot_token or "").strip()
+        if not token:
+            logger.error("Не задан bot token для отправки текста")
+            return False
+        
+        url = f"{self._base_url(token)}/sendMessage"
         payload = {
             "chat_id": chat_id,
             "text": text,
@@ -314,11 +369,17 @@ class TelegramBot:
         chat_id: int,
         file_path: Path,
         caption: Optional[str] = None,
+        bot_token: Optional[str] = None,
     ) -> bool:
         """Отправляет документ"""
         import aiohttp
         
-        url = f"{self._base_url}/sendDocument"
+        token = (bot_token or self.bot_token or "").strip()
+        if not token:
+            logger.error("Не задан bot token для отправки документа")
+            return False
+        
+        url = f"{self._base_url(token)}/sendDocument"
         
         try:
             async with aiohttp.ClientSession() as session:
@@ -350,12 +411,18 @@ class TelegramBot:
         file_data: bytes,
         file_name: str,
         caption: Optional[str] = None,
+        bot_token: Optional[str] = None,
     ) -> bool:
         """Отправляет документ из байтов"""
         import aiohttp
         from io import BytesIO
         
-        url = f"{self._base_url}/sendDocument"
+        token = (bot_token or self.bot_token or "").strip()
+        if not token:
+            logger.error("Не задан bot token для отправки документа (bytes)")
+            return False
+        
+        url = f"{self._base_url(token)}/sendDocument"
         
         try:
             async with aiohttp.ClientSession() as session:

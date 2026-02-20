@@ -7,8 +7,11 @@ web_api.py — FastAPI веб-приложение для управления �
 import os
 import json
 import secrets
+import hashlib
+import hmac
+import re
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 # Загрузка секретов из secrets.env (доступно в корне репо и в docker/)
 for _path in (
@@ -29,10 +32,11 @@ for _path in (
 import logging
 import asyncio
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
+from dataclasses import dataclass
 
 from fastapi import FastAPI, HTTPException, Depends, Request, Form, Header, Query
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -52,6 +56,7 @@ app = FastAPI(title="TG Digest Web Interface", version="1.0.0")
 BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
+USER_SECRETS_DIR = Path(os.environ.get("USER_SECRETS_DIR", "/app/data/user-secrets"))
 
 # Создаём директории если их нет
 TEMPLATES_DIR.mkdir(exist_ok=True)
@@ -96,38 +101,52 @@ except ImportError:
     auth_token_from_header = None
     auth_login = None
 
+# Локальная тестовая авторизация (логин/пароль в БД + сессия)
+AUTH_LOCAL_ENABLED = os.environ.get("AUTH_LOCAL_ENABLED", "0").lower() in ("1", "true", "yes")
+AUTH_LOCAL_COOKIE_NAME = "session_token"
+AUTH_LOCAL_SESSION_DAYS = int(os.environ.get("AUTH_LOCAL_SESSION_DAYS", "30"))
+AUTH_LOCAL_MIN_PASSWORD_LEN = int(os.environ.get("AUTH_LOCAL_MIN_PASSWORD_LEN", "8"))
+
 # Включена ли какая-либо проверка авторизации
-AUTH_REQUIRED = AUTH_OWN_ENABLED or (AUTH_CHECK_ENABLED and AUTH_SERVICE_URL)
+AUTH_REQUIRED = AUTH_LOCAL_ENABLED or AUTH_OWN_ENABLED or (AUTH_CHECK_ENABLED and AUTH_SERVICE_URL)
 
 # Имя cookie с access_token
 AUTH_COOKIE_NAME = "auth_token"
 
 # Пути, доступные без авторизации (весь остальной сервис закрыт идентификацией)
-_PUBLIC_PATHS = ("/login", "/auth/", "/logout", "/health")
+_PUBLIC_PATHS = ("/login", "/register", "/auth/", "/logout", "/health")
 
 
 def _is_public_path(path: str) -> bool:
-    if path == "/login" or path == "/logout" or path == "/health":
+    if path == "/login" or path == "/register" or path == "/logout" or path == "/health":
         return True
     if path.startswith("/auth/"):
         return True
     return False
 
 
+@dataclass
+class LocalAuthUser:
+    user_id: int
+    login: str
+    display_name: Optional[str] = None
+
+
 @app.middleware("http")
 async def require_auth_middleware(request: Request, call_next):
     """
-    Когда включена наша авторизация (AUTH_OWN_ENABLED), весь сервис закрыт идентификацией:
-    без валидного токена (cookie или Authorization) доступны только /login, /auth/*, /logout, /health.
+    Когда включена авторизация (local/OAuth/external auth), весь сервис закрыт идентификацией:
+    без валидной cookie/токена доступны только /login, /register, /auth/*, /logout, /health.
     """
-    if not AUTH_OWN_ENABLED:
+    if not AUTH_REQUIRED:
         return await call_next(request)
     path = request.url.path.rstrip("/") or "/"
     if _is_public_path(path):
         return await call_next(request)
     has_cookie = bool(request.cookies.get(AUTH_COOKIE_NAME))
+    has_local_cookie = bool(request.cookies.get(AUTH_LOCAL_COOKIE_NAME))
     has_bearer = (request.headers.get("authorization") or "").strip().lower().startswith("bearer ")
-    if has_cookie or has_bearer:
+    if has_cookie or has_local_cookie or has_bearer:
         return await call_next(request)
     next_url = quote(request.url.path, safe="")
     if request.query_params:
@@ -137,6 +156,134 @@ async def require_auth_middleware(request: Request, call_next):
 
 def _is_api_request(request: Request) -> bool:
     return request.url.path.startswith("/api/") or "application/json" in (request.headers.get("accept") or "")
+
+
+def _db_connect():
+    return psycopg2.connect(
+        host=os.environ.get("PGHOST", "localhost"),
+        port=int(os.environ.get("PGPORT", "5432")),
+        database=os.environ.get("PGDATABASE", "tg_digest"),
+        user=os.environ.get("PGUSER", "tg_digest"),
+        password=os.environ.get("PGPASSWORD", ""),
+    )
+
+
+def _normalize_login(login: str) -> str:
+    return (login or "").strip().lower()
+
+
+def _is_valid_login(login: str) -> bool:
+    return bool(re.fullmatch(r"[a-z0-9_.-]{3,64}", login))
+
+
+def _is_valid_password(password: str) -> bool:
+    return AUTH_LOCAL_MIN_PASSWORD_LEN <= len(password or "") <= 256
+
+
+def _normalize_next_path(next_path: Optional[str]) -> str:
+    p = unquote((next_path or "/").strip())
+    if not p.startswith("/") or p.startswith("//"):
+        return "/"
+    return p
+
+
+def _post_login_redirect(next_path: Optional[str]) -> str:
+    p = _normalize_next_path(next_path)
+    if p in ("/", "/login", "/register"):
+        return "/setup"
+    return p
+
+
+def _hash_password(password: str) -> str:
+    iterations = 240000
+    salt = os.urandom(16).hex()
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), iterations).hex()
+    return f"pbkdf2_sha256${iterations}${salt}${dk}"
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        algo, iterations_s, salt, digest = stored_hash.split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_s)
+        check = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), iterations).hex()
+        return hmac.compare_digest(check, digest)
+    except Exception:
+        return False
+
+
+def _create_local_session(conn, user_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now() + timedelta(days=AUTH_LOCAL_SESSION_DAYS)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO user_sessions (user_id, session_token, expires_at)
+            VALUES (%s, %s, %s)
+            """,
+            (user_id, token, expires_at),
+        )
+    return token
+
+
+def _delete_local_session(conn, session_token: str) -> None:
+    if not session_token:
+        return
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM user_sessions WHERE session_token = %s", (session_token,))
+
+
+def _get_local_user_by_session(session_token: str) -> Optional[LocalAuthUser]:
+    if not session_token:
+        return None
+    conn = None
+    try:
+        conn = _db_connect()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT us.user_id, ula.login, u.name
+                FROM user_sessions us
+                JOIN user_local_auth ula ON ula.user_id = us.user_id
+                JOIN users u ON u.id = us.user_id
+                WHERE us.session_token = %s
+                  AND us.expires_at > now()
+                  AND ula.is_active = true
+                LIMIT 1
+                """,
+                (session_token,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute(
+                "UPDATE user_sessions SET last_used_at = now() WHERE session_token = %s",
+                (session_token,),
+            )
+        conn.commit()
+        return LocalAuthUser(user_id=row["user_id"], login=row["login"], display_name=row.get("name"))
+    except Exception as e:
+        logger.warning("Local auth session check failed: %s", e)
+        if conn:
+            conn.rollback()
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def _set_local_session_cookie(response: Response, session_token: str) -> None:
+    max_age = AUTH_LOCAL_SESSION_DAYS * 24 * 60 * 60
+    response.set_cookie(
+        key=AUTH_LOCAL_COOKIE_NAME,
+        value=session_token,
+        max_age=max_age,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        path="/",
+    )
 
 
 async def get_current_auth_user(
@@ -150,6 +297,21 @@ async def get_current_auth_user(
     """
     if not AUTH_REQUIRED:
         return None
+    # Local auth (session cookie) приоритетен в тестовом режиме.
+    if AUTH_LOCAL_ENABLED:
+        local_session_token = request.cookies.get(AUTH_LOCAL_COOKIE_NAME)
+        if local_session_token:
+            local_user = _get_local_user_by_session(local_session_token)
+            if local_user:
+                return local_user
+            if not AUTH_OWN_ENABLED and not (AUTH_CHECK_ENABLED and AUTH_SERVICE_URL):
+                if _is_api_request(request):
+                    raise HTTPException(status_code=401, detail="Требуется вход по логину/паролю")
+                next_path = request.url.path
+                if request.query_params:
+                    next_path = next_path + "?" + str(request.query_params)
+                return RedirectResponse(url=f"/login?next={quote(next_path, safe='')}", status_code=302)
+
     token = None
     if authorization:
         if auth_own_token_from_header:
@@ -229,6 +391,30 @@ class ChannelResponse(BaseModel):
 class UserCreate(BaseModel):
     telegram_id: int = Field(..., description="Telegram ID пользователя")
     name: Optional[str] = None
+
+
+class UserRuntimeConfigUpdate(BaseModel):
+    user_telegram_id: Optional[int] = Field(None, description="Telegram ID пользователя (legacy fallback)")
+    tg_api_id: int = Field(..., description="Telegram API ID пользователя")
+    tg_api_hash: str = Field(..., description="Telegram API HASH пользователя")
+    tg_phone: Optional[str] = Field(None, description="Телефон Telegram аккаунта пользователя")
+    tg_session_file: Optional[str] = Field(None, description="Путь к файлу user session")
+    bot_token: Optional[str] = Field(None, description="Токен бота пользователя для рассылки")
+    bot_name: Optional[str] = Field("Default Bot", description="Название бота")
+    make_bot_default: bool = Field(True, description="Сделать бота дефолтным")
+
+
+class PromptLibraryTemplateCreate(BaseModel):
+    user_telegram_id: Optional[int] = Field(None, description="Telegram ID пользователя (legacy fallback)")
+    name: str = Field(..., description="Название шаблона")
+    prompt_type: str = Field(..., description="digest|consolidated")
+    body: str = Field(..., description="Текст шаблона")
+    share_to_library: bool = Field(False, description="Публиковать в общей библиотеке")
+
+
+class PromptLibraryTemplateSharingUpdate(BaseModel):
+    user_telegram_id: Optional[int] = Field(None, description="Telegram ID пользователя (legacy fallback)")
+    share_to_library: bool = Field(..., description="true=public, false=private")
 
 
 # Вспомогательные функции
@@ -393,7 +579,166 @@ def get_or_create_user(conn, telegram_id: int, name: Optional[str] = None) -> in
         return user_id
 
 
-async def check_chat_access(chat_id: int) -> tuple[bool, Optional[str], Optional[str], Optional[str]]:
+def _resolve_user_id(
+    conn,
+    current_user,
+    user_telegram_id: Optional[int] = None,
+    create_from_telegram: bool = True,
+) -> Optional[int]:
+    """
+    Возвращает user_id в приоритете:
+    1) из AuthUser (OAuth/JWT)
+    2) из user_telegram_id (legacy flow)
+    """
+    auth_user_id = getattr(current_user, "user_id", None)
+    if auth_user_id:
+        return int(auth_user_id)
+    if user_telegram_id is None:
+        return None
+    return get_or_create_user(conn, int(user_telegram_id), None) if create_from_telegram else None
+
+
+def _parse_user_telegram_id(value: Optional[str]) -> Optional[int]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _get_user_telegram_id(conn, user_id: Optional[int]) -> Optional[int]:
+    """Возвращает Telegram ID пользователя по user_id."""
+    if not user_id:
+        return None
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT telegram_id FROM users WHERE id = %s LIMIT 1", (user_id,))
+            row = cur.fetchone()
+        if not row:
+            return None
+        tg_id = row.get("telegram_id")
+        return int(tg_id) if tg_id is not None else None
+    except Exception as e:
+        logger.warning("Не удалось получить telegram_id для user_id=%s: %s", user_id, e)
+        return None
+
+
+def _load_user_telegram_credentials(conn, user_id: Optional[int]) -> Optional[dict]:
+    """Читает персональные Telethon credentials пользователя из БД."""
+    if not user_id:
+        return None
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT tg_api_id, tg_api_hash, tg_phone, tg_session_file
+                FROM user_telegram_credentials
+                WHERE user_id = %s AND is_active = true
+                LIMIT 1
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        session_file = row.get("tg_session_file") or f"/app/data/user-sessions/user_{user_id}.session"
+        return {
+            "tg_api_id": int(row["tg_api_id"]),
+            "tg_api_hash": (row.get("tg_api_hash") or "").strip(),
+            "tg_phone": row.get("tg_phone"),
+            "tg_session_file": session_file,
+        }
+    except Exception as e:
+        logger.warning("Не удалось загрузить user_telegram_credentials для user_id=%s: %s", user_id, e)
+        return None
+
+
+def _get_user_default_bot(conn, user_id: Optional[int]) -> Optional[dict]:
+    """Возвращает дефолтный активный бот пользователя."""
+    if not user_id:
+        return None
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, bot_name, bot_token, is_default, is_active, updated_at
+                FROM user_bot_credentials
+                WHERE user_id = %s AND is_active = true
+                ORDER BY is_default DESC, updated_at DESC, id DESC
+                LIMIT 1
+                """,
+                (user_id,),
+            )
+            return cur.fetchone()
+    except Exception as e:
+        logger.warning("Не удалось загрузить user_bot_credentials для user_id=%s: %s", user_id, e)
+        return None
+
+
+def _mask_token(token: Optional[str]) -> Optional[str]:
+    if not token:
+        return None
+    s = token.strip()
+    if len(s) <= 8:
+        return "*" * len(s)
+    return s[:4] + "*" * (len(s) - 8) + s[-4:]
+
+
+def _write_user_secret_file(conn, user_id: int) -> Optional[str]:
+    """
+    Генерирует per-user env файл с Telegram runtime credentials.
+    Файл нужен воркерам/инструментам при запуске от имени пользователя.
+    """
+    creds = _load_user_telegram_credentials(conn, user_id)
+    if not creds:
+        return None
+
+    bot = _get_user_default_bot(conn, user_id)
+    USER_SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+    secret_file = USER_SECRETS_DIR / f"user_{user_id}.env"
+
+    lines = [
+        f"USER_ID={user_id}",
+        f"TG_API_ID={creds['tg_api_id']}",
+        f"TG_API_HASH={creds['tg_api_hash']}",
+        f"TG_SESSION_FILE={creds['tg_session_file']}",
+    ]
+    if creds.get("tg_phone"):
+        lines.append(f"TG_PHONE={creds['tg_phone']}")
+    if bot and bot.get("bot_token"):
+        lines.append(f"TG_BOT_TOKEN={bot['bot_token']}")
+        lines.append(f"TG_BOT_NAME={bot.get('bot_name') or 'Default Bot'}")
+
+    content = "\n".join(lines) + "\n"
+    secret_file.write_text(content, encoding="utf-8")
+    os.chmod(secret_file, 0o600)
+    checksum = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO user_secret_files (user_id, secret_file_path, file_checksum, generated_at, updated_at)
+            VALUES (%s, %s, %s, now(), now())
+            ON CONFLICT (user_id) DO UPDATE SET
+                secret_file_path = EXCLUDED.secret_file_path,
+                file_checksum = EXCLUDED.file_checksum,
+                generated_at = now(),
+                updated_at = now()
+            """,
+            (user_id, str(secret_file), checksum),
+        )
+    return str(secret_file)
+
+
+async def check_chat_access(
+    chat_id: int,
+    *,
+    tg_api_id: Optional[int] = None,
+    tg_api_hash: Optional[str] = None,
+    tg_session_file: Optional[str] = None,
+) -> tuple[bool, Optional[str], Optional[str], Optional[str]]:
     """
     Проверяет наличие и доступ к чату/каналу через системную Telethon сессию.
     Возвращает (доступ_есть, peer_type, название, сообщение_об_ошибке).
@@ -407,10 +752,9 @@ async def check_chat_access(chat_id: int) -> tuple[bool, Optional[str], Optional
             ChannelInvalidError, ChatIdInvalidError, PeerIdInvalidError,
         )
         
-        api_id_str = (os.environ.get("TG_API_ID", "") or "").strip()
-        api_id = int(api_id_str) if api_id_str else 0
-        api_hash = (os.environ.get("TG_API_HASH", "") or "").strip()
-        session_file = (os.environ.get("TG_SESSION_FILE", "") or "").strip()
+        api_id = int(tg_api_id or int((os.environ.get("TG_API_ID", "") or "0").strip() or 0))
+        api_hash = (tg_api_hash or os.environ.get("TG_API_HASH", "") or "").strip()
+        session_file = (tg_session_file or os.environ.get("TG_SESSION_FILE", "") or "").strip()
         
         if not api_id or not api_hash or not session_file:
             logger.error("Telegram credentials не настроены")
@@ -470,7 +814,13 @@ async def check_chat_access(chat_id: int) -> tuple[bool, Optional[str], Optional
         return False, None, None, "Сервис проверки Telegram временно недоступен. Попробуйте позже."
 
 
-async def check_recipient_access(recipient_id: int) -> tuple[bool, Optional[str]]:
+async def check_recipient_access(
+    recipient_id: int,
+    *,
+    tg_api_id: Optional[int] = None,
+    tg_api_hash: Optional[str] = None,
+    tg_session_file: Optional[str] = None,
+) -> tuple[bool, Optional[str]]:
     """
     Проверяет, что получатель дайджестов (пользователь или чат) существует и доступен для системы.
     Возвращает (успех, сообщение_об_ошибке).
@@ -483,10 +833,9 @@ async def check_recipient_access(recipient_id: int) -> tuple[bool, Optional[str]
             ChannelInvalidError, ChatIdInvalidError,
         )
         
-        api_id_str = (os.environ.get("TG_API_ID", "") or "").strip()
-        api_id = int(api_id_str) if api_id_str else 0
-        api_hash = (os.environ.get("TG_API_HASH", "") or "").strip()
-        session_file = (os.environ.get("TG_SESSION_FILE", "") or "").strip()
+        api_id = int(tg_api_id or int((os.environ.get("TG_API_ID", "") or "0").strip() or 0))
+        api_hash = (tg_api_hash or os.environ.get("TG_API_HASH", "") or "").strip()
+        session_file = (tg_session_file or os.environ.get("TG_SESSION_FILE", "") or "").strip()
         
         if not api_id or not api_hash or not session_file:
             return False, "Сервис не настроен для проверки Telegram."
@@ -503,7 +852,7 @@ async def check_recipient_access(recipient_id: int) -> tuple[bool, Optional[str]
             await client.disconnect()
             # Для получателей делаем проверку более мягкой - если ID выглядит валидным, разрешаем
             # Это может быть бот или пользователь, с которым система еще не взаимодействовала
-            if recipient_id > 0 and recipient_id < 2**31:  # Валидный положительный ID пользователя/бота
+            if recipient_id > 0:  # Валидный положительный ID пользователя/бота
                 logger.info(f"Получатель {recipient_id} не найден в контактах, но ID выглядит валидным - разрешаем использование")
                 return True, None
             return False, (
@@ -521,7 +870,7 @@ async def check_recipient_access(recipient_id: int) -> tuple[bool, Optional[str]
             await client.disconnect()
             # Если ошибка связана с тем, что сущность не найдена (бот не в контактах), разрешаем использование
             if "Could not find the input entity" in error_msg or "not found" in error_msg.lower():
-                if recipient_id > 0 and recipient_id < 2**31:  # Валидный положительный ID
+                if recipient_id > 0:  # Валидный положительный ID
                     logger.info(f"Получатель {recipient_id} не найден в контактах Telethon, но ID валидный - разрешаем использование")
                     return True, None
             logger.warning(f"Проверка получателя {recipient_id}: {e}")
@@ -539,28 +888,54 @@ async def check_recipient_access(recipient_id: int) -> tuple[bool, Optional[str]
 async def index(
     request: Request,
     current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
 ):
     """Главная страница с формой добавления чата"""
-    return templates.TemplateResponse("index.html", {"request": request})
+    user_id = _resolve_user_id(db, current_user, create_from_telegram=False)
+    user_telegram_id = _get_user_telegram_id(db, user_id)
+    return templates.TemplateResponse("index.html", {"request": request, "user_telegram_id": user_telegram_id or ""})
+
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page(
+    request: Request,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
+    """Персональная страница первичной настройки Telegram/Telethon для пользователя."""
+    user_id = _resolve_user_id(db, current_user, create_from_telegram=False)
+    user_telegram_id = _get_user_telegram_id(db, user_id)
+    return templates.TemplateResponse("setup.html", {
+        "request": request,
+        "user_id": user_id or "",
+        "user_telegram_id": user_telegram_id or "",
+    })
 
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, next_url: Optional[str] = None, error_msg: Optional[str] = None):
     """Страница входа: OAuth (Google/Яндекс), auth-сервис (логин/пароль) или Telegram ID"""
-    next_url = next_url or request.query_params.get("next", "/")
+    next_url = _normalize_next_path(next_url or request.query_params.get("next", "/"))
+    err = error_msg or request.query_params.get("error")
+    if AUTH_LOCAL_ENABLED:
+        return templates.TemplateResponse("login_local.html", {
+            "request": request,
+            "next_url": next_url,
+            "error_msg": err,
+        })
     if AUTH_OWN_ENABLED:
         return templates.TemplateResponse("login_oauth.html", {
             "request": request,
             "next_url": next_url,
             "next_encoded": quote(next_url, safe=""),
-            "error_msg": error_msg or request.query_params.get("error"),
+            "error_msg": err,
             "yandex_enabled": bool(YANDEX_CLIENT_ID),
         })
     if AUTH_CHECK_ENABLED:
         return templates.TemplateResponse("login_auth.html", {
             "request": request,
             "next_url": next_url,
-            "error_msg": error_msg or request.query_params.get("error"),
+            "error_msg": err,
         })
     return templates.TemplateResponse("login.html", {"request": request})
 
@@ -573,7 +948,50 @@ async def login_submit(
     next_path: str = Form(default="/", alias="next"),
     db=Depends(get_db),
 ):
-    """Вход через auth-сервис (логин/пароль): установка cookie, редирект."""
+    """Вход через local auth или внешний auth-сервис: установка cookie, редирект."""
+    next_path = _normalize_next_path(next_path)
+
+    if AUTH_LOCAL_ENABLED:
+        login = _normalize_login(username)
+        if not login or not password:
+            return RedirectResponse(
+                url=f"/login?next={quote(next_path, safe='')}&error={quote('Введите логин и пароль', safe='')}",
+                status_code=302,
+            )
+        try:
+            with db.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT ula.user_id, ula.password_hash, ula.is_active
+                    FROM user_local_auth ula
+                    JOIN users u ON u.id = ula.user_id
+                    WHERE ula.login = %s
+                    LIMIT 1
+                    """,
+                    (login,),
+                )
+                row = cur.fetchone()
+            if not row or not row.get("is_active") or not _verify_password(password, row.get("password_hash", "")):
+                return RedirectResponse(
+                    url=f"/login?next={quote(next_path, safe='')}&error={quote('Неверный логин или пароль', safe='')}",
+                    status_code=302,
+                )
+            user_id = int(row["user_id"])
+            session_token = _create_local_session(db, user_id)
+            db.commit()
+            audit_log(db, user_id, "login_local", {"login": login}, request)
+            response = RedirectResponse(url=_post_login_redirect(next_path), status_code=302)
+            _set_local_session_cookie(response, session_token)
+            response.delete_cookie(AUTH_COOKIE_NAME, path="/")
+            return response
+        except Exception as e:
+            logger.error("Ошибка local login: %s", e)
+            db.rollback()
+            return RedirectResponse(
+                url=f"/login?next={quote(next_path, safe='')}&error={quote('Ошибка входа. Попробуйте позже', safe='')}",
+                status_code=302,
+            )
+
     if not AUTH_CHECK_ENABLED or not auth_login:
         return RedirectResponse(url="/login", status_code=302)
     if not username or not password:
@@ -598,6 +1016,132 @@ async def login_submit(
         samesite="lax",
     )
     return response
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request, next_url: Optional[str] = None, error_msg: Optional[str] = None):
+    """Страница регистрации в local auth режиме."""
+    if not AUTH_LOCAL_ENABLED:
+        return RedirectResponse(url="/login", status_code=302)
+    next_url = _normalize_next_path(next_url or request.query_params.get("next", "/"))
+    return templates.TemplateResponse("register_local.html", {
+        "request": request,
+        "next_url": next_url,
+        "error_msg": error_msg or request.query_params.get("error"),
+    })
+
+
+@app.post("/register", response_class=HTMLResponse)
+async def register_submit(
+    request: Request,
+    login: str = Form(default=""),
+    password: str = Form(default=""),
+    password_confirm: str = Form(default=""),
+    telegram_id: str = Form(default=""),
+    display_name: str = Form(default=""),
+    next_path: str = Form(default="/", alias="next"),
+    db=Depends(get_db),
+):
+    """Регистрация local пользователя: users + user_local_auth + сессия."""
+    if not AUTH_LOCAL_ENABLED:
+        return RedirectResponse(url="/login", status_code=302)
+
+    next_path = _normalize_next_path(next_path)
+    norm_login = _normalize_login(login)
+
+    if not _is_valid_login(norm_login):
+        return RedirectResponse(
+            url=f"/register?next={quote(next_path, safe='')}&error={quote('Логин: 3-64 символа [a-z0-9_.-]', safe='')}",
+            status_code=302,
+        )
+    if not _is_valid_password(password):
+        return RedirectResponse(
+            url=f"/register?next={quote(next_path, safe='')}&error={quote(f'Пароль должен быть не короче {AUTH_LOCAL_MIN_PASSWORD_LEN} символов', safe='')}",
+            status_code=302,
+        )
+    if password != password_confirm:
+        return RedirectResponse(
+            url=f"/register?next={quote(next_path, safe='')}&error={quote('Пароли не совпадают', safe='')}",
+            status_code=302,
+        )
+
+    tg_id_value: Optional[int] = None
+    tg_id_raw = (telegram_id or "").strip()
+    if not tg_id_raw:
+        return RedirectResponse(
+            url=f"/register?next={quote(next_path, safe='')}&error={quote('Укажите ваш Telegram ID', safe='')}",
+            status_code=302,
+        )
+    try:
+        tg_id_value = int(tg_id_raw)
+        if tg_id_value == 0:
+            raise ValueError("zero")
+    except ValueError:
+        return RedirectResponse(
+            url=f"/register?next={quote(next_path, safe='')}&error={quote('Telegram ID должен быть числом и не равен 0', safe='')}",
+            status_code=302,
+        )
+
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT user_id FROM user_local_auth WHERE login = %s LIMIT 1", (norm_login,))
+            if cur.fetchone():
+                return RedirectResponse(
+                    url=f"/register?next={quote(next_path, safe='')}&error={quote('Такой логин уже занят', safe='')}",
+                    status_code=302,
+                )
+
+            cur.execute("SELECT id, name FROM users WHERE telegram_id = %s LIMIT 1", (tg_id_value,))
+            existing = cur.fetchone()
+            if existing:
+                user_id = int(existing["id"])
+                user_name = (display_name or "").strip()
+                if user_name:
+                    cur.execute(
+                        "UPDATE users SET name = %s, updated_at = now() WHERE id = %s",
+                        (user_name, user_id),
+                    )
+            else:
+                user_name = (display_name or "").strip() or f"User {tg_id_value}"
+                cur.execute(
+                    """
+                    INSERT INTO users (telegram_id, name, is_active)
+                    VALUES (%s, %s, true)
+                    RETURNING id
+                    """,
+                    (tg_id_value, user_name),
+                )
+                user_id = int(cur.fetchone()["id"])
+
+            cur.execute("SELECT id FROM user_local_auth WHERE user_id = %s LIMIT 1", (user_id,))
+            if cur.fetchone():
+                return RedirectResponse(
+                    url=f"/register?next={quote(next_path, safe='')}&error={quote('Для этого Telegram ID уже создан login/password', safe='')}",
+                    status_code=302,
+                )
+
+            cur.execute(
+                """
+                INSERT INTO user_local_auth (user_id, login, password_hash, is_active)
+                VALUES (%s, %s, %s, true)
+                """,
+                (user_id, norm_login, _hash_password(password)),
+            )
+            session_token = _create_local_session(db, user_id)
+
+        db.commit()
+        audit_log(db, user_id, "register_local", {"login": norm_login, "telegram_id": tg_id_value}, request)
+        response = RedirectResponse(url=_post_login_redirect(next_path), status_code=302)
+        _set_local_session_cookie(response, session_token)
+        response.delete_cookie(AUTH_COOKIE_NAME, path="/")
+        return response
+    except Exception as e:
+        logger.error("Ошибка local register: %s", e)
+        db.rollback()
+        return RedirectResponse(
+            url=f"/register?next={quote(next_path, safe='')}&error={quote('Ошибка регистрации. Попробуйте позже', safe='')}",
+            status_code=302,
+        )
 
 
 # OAuth: редирект на провайдера (только Яндекс)
@@ -646,14 +1190,30 @@ async def auth_yandex_callback(request: Request, code: Optional[str] = None, sta
 async def logout_page(request: Request, db=Depends(get_db)):
     """Сброс cookie авторизации и редирект на главную. Аудит выхода — по cookie до удаления."""
     user_id = None
+    logout_method = None
+
+    local_session_token = request.cookies.get(AUTH_LOCAL_COOKIE_NAME)
+    if AUTH_LOCAL_ENABLED and local_session_token:
+        local_user = _get_local_user_by_session(local_session_token)
+        if local_user:
+            user_id = local_user.user_id
+            logout_method = "local"
+        try:
+            _delete_local_session(db, local_session_token)
+            db.commit()
+        except Exception:
+            db.rollback()
+
     token = request.cookies.get(AUTH_COOKIE_NAME)
     if AUTH_OWN_ENABLED and verify_access_token and token:
         au = verify_access_token(token)
         if au:
             user_id = au.user_id
+            logout_method = "oauth"
     if user_id is not None:
-        audit_log(db, user_id, "logout", {}, request)
-    response = RedirectResponse(url="/", status_code=302)
+        audit_log(db, user_id, "logout", {"method": logout_method}, request)
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie(AUTH_LOCAL_COOKIE_NAME, path="/")
     response.delete_cookie(AUTH_COOKIE_NAME, path="/")
     return response
 
@@ -663,8 +1223,13 @@ async def channels_page(
     request: Request,
     current_user: Optional[str] = Depends(get_current_auth_user),
     user_telegram_id: Optional[int] = None,
+    db=Depends(get_db),
 ):
     """Страница со списком каналов пользователя"""
+    if user_telegram_id is None:
+        resolved_user_id = _resolve_user_id(db, current_user, create_from_telegram=False)
+        if resolved_user_id:
+            user_telegram_id = _get_user_telegram_id(db, resolved_user_id)
     if user_telegram_id is None:
         uid_param = request.query_params.get("user_telegram_id")
         if uid_param and uid_param.isdigit():
@@ -717,11 +1282,14 @@ async def instructions_page(
 async def prompts_page(
     request: Request,
     current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
 ):
     """Библиотека промптов (по умолчанию) или редактор канала (если передан channel_id)."""
     channel_id = request.query_params.get("channel_id")
     remote_user = request.headers.get("X-Remote-User", "")
-    context = {"request": request, "remote_user": remote_user}
+    resolved_user_id = _resolve_user_id(db, current_user, create_from_telegram=False)
+    user_telegram_id = _get_user_telegram_id(db, resolved_user_id)
+    context = {"request": request, "remote_user": remote_user, "user_telegram_id": user_telegram_id or ""}
     if channel_id:
         return templates.TemplateResponse("prompts_v2.html", context)
     return templates.TemplateResponse("prompts_library.html", context)
@@ -731,7 +1299,9 @@ async def prompts_page(
 async def api_check_chat(
     request: Request,
     chat_id: str = Query(..., description="ID чата для проверки доступа"),
+    user_telegram_id: Optional[int] = Query(None, description="Telegram ID пользователя (legacy)"),
     current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
 ):
     """
     Проверяет наличие и доступность чата/канала для системы (по факту ввода).
@@ -770,14 +1340,27 @@ async def api_check_chat(
     name = None
     err = None
     
+    resolved_user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id)
+    creds = _load_user_telegram_credentials(db, resolved_user_id)
+
     # Сначала пробуем с исходным ID
-    has_access, peer_type, name, err = await check_chat_access(cid)
+    has_access, peer_type, name, err = await check_chat_access(
+        cid,
+        tg_api_id=(creds or {}).get("tg_api_id"),
+        tg_api_hash=(creds or {}).get("tg_api_hash"),
+        tg_session_file=(creds or {}).get("tg_session_file"),
+    )
     
     # Если не получилось и ID положительный, пробуем с отрицательным
     if not has_access and cid > 0:
         negative_id = -cid
         logger.info(f"Пробуем отрицательный ID для группы: {negative_id}")
-        has_access, peer_type, name, err = await check_chat_access(negative_id)
+        has_access, peer_type, name, err = await check_chat_access(
+            negative_id,
+            tg_api_id=(creds or {}).get("tg_api_id"),
+            tg_api_hash=(creds or {}).get("tg_api_hash"),
+            tg_session_file=(creds or {}).get("tg_session_file"),
+        )
         if has_access:
             # Обновляем сообщение, чтобы указать правильный ID
             err = None
@@ -802,7 +1385,9 @@ async def api_check_chat(
 @app.get("/api/check-recipient", response_class=JSONResponse)
 async def api_check_recipient(
     recipient_id: str = Query(..., description="ID получателя дайджестов"),
+    user_telegram_id: Optional[int] = Query(None, description="Telegram ID пользователя (legacy)"),
     current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
 ):
     """
     Проверяет доступность получателя для системы (по факту ввода).
@@ -828,7 +1413,14 @@ async def api_check_recipient(
                 "message": "ID получателя не может быть нулём. Укажите ваш ID или ID бота."
             }
         )
-    ok, err = await check_recipient_access(rid)
+    resolved_user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id)
+    creds = _load_user_telegram_credentials(db, resolved_user_id)
+    ok, err = await check_recipient_access(
+        rid,
+        tg_api_id=(creds or {}).get("tg_api_id"),
+        tg_api_hash=(creds or {}).get("tg_api_hash"),
+        tg_session_file=(creds or {}).get("tg_session_file"),
+    )
     if ok:
         return {"available": True, "message": None}
     return JSONResponse(
@@ -852,15 +1444,162 @@ async def create_user(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/user/runtime-config", response_class=JSONResponse)
+async def get_user_runtime_config(
+    user_telegram_id: Optional[int] = None,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
+    """Возвращает персональные Telegram runtime-настройки пользователя (без утечки секретов)."""
+    try:
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id, create_from_telegram=True)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
+
+        creds = _load_user_telegram_credentials(db, user_id)
+        bot = _get_user_default_bot(db, user_id)
+
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT secret_file_path, file_checksum, generated_at
+                FROM user_secret_files
+                WHERE user_id = %s
+                LIMIT 1
+                """,
+                (user_id,),
+            )
+            secret_row = cur.fetchone()
+
+        return {
+            "user_id": user_id,
+            "telegram_id": _get_user_telegram_id(db, user_id),
+            "telegram": {
+                "configured": bool(creds),
+                "tg_api_id": creds.get("tg_api_id") if creds else None,
+                "tg_phone": creds.get("tg_phone") if creds else None,
+                "tg_session_file": creds.get("tg_session_file") if creds else None,
+            },
+            "bot": {
+                "configured": bool(bot),
+                "id": bot.get("id") if bot else None,
+                "bot_name": bot.get("bot_name") if bot else None,
+                "bot_token_masked": _mask_token(bot.get("bot_token")) if bot else None,
+                "is_default": bool(bot.get("is_default")) if bot else False,
+            },
+            "secret_file": {
+                "path": secret_row.get("secret_file_path") if secret_row else None,
+                "checksum": secret_row.get("file_checksum") if secret_row else None,
+                "generated_at": secret_row.get("generated_at").isoformat() if secret_row and secret_row.get("generated_at") else None,
+            },
+        }
+    except HTTPException:
+        raise
+    except psycopg2.ProgrammingError as e:
+        if "does not exist" in str(e).lower():
+            raise HTTPException(status_code=400, detail="Выполните миграцию 009_user_runtime_and_prompt_sharing.sql.")
+        raise
+    except Exception as e:
+        logger.error("Ошибка получения runtime-config пользователя: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/user/runtime-config", response_class=JSONResponse)
+async def set_user_runtime_config(
+    request: Request,
+    body: UserRuntimeConfigUpdate,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
+    """
+    Сохраняет персональные Telegram credentials и бота пользователя в БД.
+    Дополнительно генерирует / обновляет per-user secret env файл.
+    """
+    try:
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=body.user_telegram_id)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
+        if not body.tg_api_id or not body.tg_api_hash.strip():
+            raise HTTPException(status_code=400, detail="tg_api_id и tg_api_hash обязательны")
+
+        session_file = (body.tg_session_file or f"/app/data/user-sessions/user_{user_id}.session").strip()
+        tg_api_hash = body.tg_api_hash.strip()
+
+        with db.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO user_telegram_credentials (
+                    user_id, tg_api_id, tg_api_hash, tg_phone, tg_session_file, is_active
+                ) VALUES (%s, %s, %s, %s, %s, true)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    tg_api_id = EXCLUDED.tg_api_id,
+                    tg_api_hash = EXCLUDED.tg_api_hash,
+                    tg_phone = EXCLUDED.tg_phone,
+                    tg_session_file = EXCLUDED.tg_session_file,
+                    is_active = true,
+                    updated_at = now()
+                """,
+                (user_id, int(body.tg_api_id), tg_api_hash, body.tg_phone, session_file),
+            )
+
+            created_bot_id = None
+            if body.bot_token and body.bot_token.strip():
+                bot_token = body.bot_token.strip()
+                if body.make_bot_default:
+                    cur.execute(
+                        "UPDATE user_bot_credentials SET is_default = false WHERE user_id = %s",
+                        (user_id,),
+                    )
+                cur.execute(
+                    """
+                    INSERT INTO user_bot_credentials (user_id, bot_name, bot_token, is_active, is_default)
+                    VALUES (%s, %s, %s, true, %s)
+                    RETURNING id
+                    """,
+                    (user_id, (body.bot_name or "Default Bot").strip(), bot_token, body.make_bot_default),
+                )
+                created_bot_id = cur.fetchone()[0]
+
+            secret_file_path = _write_user_secret_file(db, user_id)
+            db.commit()
+
+        audit_log(
+            db, _audit_user_id(current_user), "user_runtime_config_updated",
+            {"user_id": user_id, "created_bot_id": created_bot_id}, request,
+            "user_runtime", str(user_id),
+        )
+        return {
+            "success": True,
+            "user_id": user_id,
+            "secret_file_path": secret_file_path,
+            "created_bot_id": created_bot_id,
+            "message": "Персональные runtime-настройки сохранены",
+        }
+    except HTTPException:
+        raise
+    except psycopg2.ProgrammingError as e:
+        db.rollback()
+        if "does not exist" in str(e).lower():
+            raise HTTPException(status_code=400, detail="Выполните миграцию 009_user_runtime_and_prompt_sharing.sql.")
+        raise
+    except Exception as e:
+        logger.error("Ошибка сохранения runtime-config пользователя: %s", e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/channels", response_class=JSONResponse)
 async def list_channels(
-    user_telegram_id: int,
+    user_telegram_id: Optional[str] = None,
     current_user: Optional[str] = Depends(get_current_auth_user),
     db=Depends(get_db),
 ):
     """Возвращает список каналов пользователя"""
     try:
-        user_id = get_or_create_user(db, user_telegram_id, None)
+        user_telegram_id_i = _parse_user_telegram_id(user_telegram_id)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id_i)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
         
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Получаем каналы
@@ -915,12 +1654,21 @@ def _validate_channel_params(
     user_telegram_id: Optional[str],
     telegram_chat_id: Optional[str],
     recipient_telegram_id: Optional[str],
+    require_user_telegram_id: bool = True,
 ) -> List[dict]:
     """Проверка параметров добавления канала. Возвращает список ошибок [{field, message}]."""
     errors = []
-    if not user_telegram_id or not str(user_telegram_id).strip():
-        errors.append({"field": "user_telegram_id", "message": "Укажите ваш Telegram ID (число). Узнать можно через @userinfobot."})
-    else:
+    if require_user_telegram_id:
+        if not user_telegram_id or not str(user_telegram_id).strip():
+            errors.append({"field": "user_telegram_id", "message": "Укажите ваш Telegram ID (число). Узнать можно через @userinfobot."})
+        else:
+            try:
+                uid = int(user_telegram_id)
+                if uid == 0:
+                    errors.append({"field": "user_telegram_id", "message": "Telegram ID не может быть нулём. Укажите ваш реальный ID."})
+            except (TypeError, ValueError):
+                errors.append({"field": "user_telegram_id", "message": "Telegram ID должен быть числом (например: 499412926)."})
+    elif user_telegram_id and str(user_telegram_id).strip():
         try:
             uid = int(user_telegram_id)
             if uid == 0:
@@ -954,7 +1702,7 @@ def _validate_channel_params(
 @app.post("/api/channels", response_class=JSONResponse)
 async def create_channel(
     request: Request,
-    user_telegram_id: str = Form(..., description="Telegram ID пользователя"),
+    user_telegram_id: Optional[str] = Form(None, description="Telegram ID пользователя"),
     telegram_chat_id: str = Form(..., description="ID чата для мониторинга"),
     name: Optional[str] = Form(None),
     recipient_telegram_id: str = Form(..., description="ID получателя дайджестов"),
@@ -970,24 +1718,39 @@ async def create_channel(
     db=Depends(get_db),
 ):
     """Добавляет новый канал для пользователя. Перед добавлением проверяет все параметры и доступность чата."""
+    auth_user_id = getattr(current_user, "user_id", None)
+
     # 1. Проверка формата и обязательности полей
-    validation_errors = _validate_channel_params(user_telegram_id, telegram_chat_id, recipient_telegram_id)
+    validation_errors = _validate_channel_params(
+        user_telegram_id,
+        telegram_chat_id,
+        recipient_telegram_id,
+        require_user_telegram_id=not bool(auth_user_id),
+    )
     if validation_errors:
         return JSONResponse(
             status_code=400,
             content={"success": False, "errors": validation_errors, "message": "Исправьте указанные поля и отправьте форму снова."}
         )
 
-    uid = int(user_telegram_id)
+    uid = _parse_user_telegram_id(user_telegram_id)
     chat_id = int(telegram_chat_id)
     recip_id = int(recipient_telegram_id)
 
     try:
         # 2. Получаем или создаём пользователя
-        user_id = get_or_create_user(db, uid, None)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=uid)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
 
-        # 3. Проверяем наличие и доступ к чату для мониторинга
-        has_access, peer_type, chat_name, chat_err = await check_chat_access(chat_id)
+        # 3. Проверяем наличие и доступ к чату для мониторинга (персональной сессией пользователя, если настроена)
+        user_creds = _load_user_telegram_credentials(db, user_id)
+        has_access, peer_type, chat_name, chat_err = await check_chat_access(
+            chat_id,
+            tg_api_id=(user_creds or {}).get("tg_api_id"),
+            tg_api_hash=(user_creds or {}).get("tg_api_hash"),
+            tg_session_file=(user_creds or {}).get("tg_session_file"),
+        )
         errors = []
         if not has_access:
             errors.append({
@@ -999,7 +1762,12 @@ async def create_channel(
             })
 
         # 4. Проверяем доступность получателя дайджестов
-        recip_ok, recip_err = await check_recipient_access(recip_id)
+        recip_ok, recip_err = await check_recipient_access(
+            recip_id,
+            tg_api_id=(user_creds or {}).get("tg_api_id"),
+            tg_api_hash=(user_creds or {}).get("tg_api_hash"),
+            tg_session_file=(user_creds or {}).get("tg_session_file"),
+        )
         if not recip_ok:
             errors.append({
                 "field": "recipient_telegram_id",
@@ -1134,7 +1902,7 @@ class ChannelUpdate(BaseModel):
 async def update_channel(
     request: Request,
     channel_id: int,
-    user_telegram_id: int,
+    user_telegram_id: Optional[str] = Form(None),
     name: Optional[str] = Form(None),
     recipient_telegram_id: Optional[int] = Form(None),
     recipient_name: Optional[str] = Form(None),
@@ -1148,7 +1916,10 @@ async def update_channel(
 ):
     """Обновляет канал пользователя (название, получатель, настройки доставки дайджеста)."""
     try:
-        user_id = get_or_create_user(db, user_telegram_id, None)
+        user_telegram_id_i = _parse_user_telegram_id(user_telegram_id)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id_i)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
         if name == "":
             name = None
         if recipient_name == "":
@@ -1239,13 +2010,16 @@ async def update_channel(
 async def delete_channel(
     request: Request,
     channel_id: int,
-    user_telegram_id: int,
+    user_telegram_id: Optional[str] = None,
     current_user: Optional[str] = Depends(get_current_auth_user),
     db=Depends(get_db),
 ):
     """Удаляет канал пользователя"""
     try:
-        user_id = get_or_create_user(db, user_telegram_id, None)
+        user_telegram_id_i = _parse_user_telegram_id(user_telegram_id)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id_i)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
         
         with db.cursor() as cur:
             cur.execute("""
@@ -1275,14 +2049,17 @@ async def delete_channel(
 @app.get("/api/digests/{channel_id}", response_class=JSONResponse)
 async def get_digests(
     channel_id: int,
-    user_telegram_id: int,
+    user_telegram_id: Optional[str] = None,
     limit: int = 10,
     current_user: Optional[str] = Depends(get_current_auth_user),
     db=Depends(get_db),
 ):
     """Возвращает последние дайджесты канала"""
     try:
-        user_id = get_or_create_user(db, user_telegram_id, None)
+        user_telegram_id_i = _parse_user_telegram_id(user_telegram_id)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id_i)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
         
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Проверяем что канал принадлежит пользователю
@@ -1329,13 +2106,16 @@ async def get_digests(
 @app.get("/api/channels/{channel_id}/document", response_class=FileResponse)
 async def get_consolidated_document(
     channel_id: int,
-    user_telegram_id: int,
+    user_telegram_id: Optional[str] = None,
     current_user: Optional[str] = Depends(get_current_auth_user),
     db=Depends(get_db),
 ):
     """Возвращает сводный инженерный документ канала"""
     try:
-        user_id = get_or_create_user(db, user_telegram_id, None)
+        user_telegram_id_i = _parse_user_telegram_id(user_telegram_id)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id_i)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
         
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Проверяем что канал принадлежит пользователю
@@ -1375,13 +2155,16 @@ async def get_consolidated_document(
 
 @app.get("/api/prompts-library", response_class=JSONResponse)
 async def get_prompts_library(
-    user_telegram_id: int,
+    user_telegram_id: Optional[str] = None,
     current_user: Optional[str] = Depends(get_current_auth_user),
     db=Depends(get_db),
 ):
     """Возвращает все каналы пользователя с их промптами (библиотека промптов)."""
     try:
-        user_id = get_or_create_user(db, user_telegram_id, None)
+        user_telegram_id_i = _parse_user_telegram_id(user_telegram_id)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id_i)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
         
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -1422,25 +2205,36 @@ async def get_prompts_library(
 @app.get("/api/prompt-library/templates", response_class=JSONResponse)
 async def get_prompt_library_templates(
     prompt_type: Optional[str] = None,
+    user_telegram_id: Optional[int] = None,
     current_user: Optional[str] = Depends(get_current_auth_user),
     db=Depends(get_db),
 ):
     """Возвращает шаблоны промптов из таблицы prompt_library (библиотека в БД)."""
     try:
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id, create_from_telegram=False)
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            if prompt_type:
-                cur.execute("""
-                    SELECT id, name, prompt_type, file_path, body, created_at, updated_at
-                    FROM prompt_library
-                    WHERE prompt_type = %s
-                    ORDER BY name
-                """, (prompt_type,))
+            params = []
+            where_parts = []
+            if user_id:
+                where_parts.append("(visibility = 'public' OR owner_user_id = %s)")
+                params.append(user_id)
             else:
-                cur.execute("""
-                    SELECT id, name, prompt_type, file_path, body, created_at, updated_at
-                    FROM prompt_library
-                    ORDER BY prompt_type, name
-                """)
+                where_parts.append("visibility = 'public'")
+            if prompt_type:
+                where_parts.append("prompt_type = %s")
+                params.append(prompt_type)
+
+            where_sql = " AND ".join(where_parts) if where_parts else "true"
+            cur.execute(
+                f"""
+                SELECT id, name, prompt_type, file_path, body, created_at, updated_at,
+                       owner_user_id, visibility, is_base
+                FROM prompt_library
+                WHERE {where_sql}
+                ORDER BY prompt_type, name
+                """,
+                tuple(params),
+            )
             rows = cur.fetchall()
             result = []
             for r in rows:
@@ -1450,13 +2244,16 @@ async def get_prompt_library_templates(
                     "prompt_type": r["prompt_type"],
                     "file_path": r.get("file_path"),
                     "body": r.get("body") or "",
+                    "visibility": r.get("visibility") or "public",
+                    "is_base": bool(r.get("is_base")),
+                    "is_mine": bool(user_id and r.get("owner_user_id") == user_id),
                     "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
                     "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
                 })
             return {"templates": result}
     except psycopg2.ProgrammingError as e:
         if "does not exist" in str(e).lower() or "relation" in str(e).lower():
-            return {"templates": [], "message": "Таблица prompt_library не найдена. Выполните миграцию 005_prompt_library.sql."}
+            return {"templates": [], "message": "Таблица prompt_library/поля sharing не найдены. Выполните миграции 005 и 009."}
         raise
     except Exception as e:
         logger.error(f"Ошибка получения шаблонов из prompt_library: {e}")
@@ -1486,12 +2283,15 @@ async def sync_prompt_library(
                     prompt_type = "consolidated" if "consolidated" in p.name.lower() else "digest"
                     name = p.stem.replace("_", " ").replace("-", " ").title()
                     cur.execute("""
-                        INSERT INTO prompt_library (name, prompt_type, file_path, body)
+                        INSERT INTO prompt_library (name, prompt_type, file_path, body, owner_user_id, visibility, is_base)
                         VALUES (%s, %s, %s, %s)
                         ON CONFLICT (file_path) DO UPDATE SET
                             name = EXCLUDED.name,
                             prompt_type = EXCLUDED.prompt_type,
                             body = EXCLUDED.body,
+                            owner_user_id = NULL,
+                            visibility = 'public',
+                            is_base = true,
                             updated_at = now()
                     """, (name, prompt_type, rel, body))
                     synced.append({"file_path": rel, "name": name, "prompt_type": prompt_type})
@@ -1501,7 +2301,7 @@ async def sync_prompt_library(
         if "does not exist" in str(e).lower():
             raise HTTPException(
                 status_code=400,
-                detail="Таблица prompt_library не найдена. Выполните миграцию 005_prompt_library.sql."
+                detail="Таблица prompt_library/поля sharing не найдены. Выполните миграции 005 и 009."
             )
         raise
     except Exception as e:
@@ -1510,17 +2310,121 @@ async def sync_prompt_library(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/prompt-library/templates", response_class=JSONResponse)
+async def create_prompt_library_template(
+    request: Request,
+    body: PromptLibraryTemplateCreate,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
+    """Создаёт пользовательский шаблон в prompt_library с выбором public/private."""
+    try:
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=body.user_telegram_id)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
+        if body.prompt_type not in ("digest", "consolidated"):
+            raise HTTPException(status_code=400, detail="prompt_type должен быть digest или consolidated")
+        if not body.name.strip():
+            raise HTTPException(status_code=400, detail="name обязателен")
+        if not body.body.strip():
+            raise HTTPException(status_code=400, detail="body обязателен")
+
+        visibility = "public" if body.share_to_library else "private"
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                INSERT INTO prompt_library (
+                    name, prompt_type, file_path, body, owner_user_id, visibility, is_base
+                ) VALUES (%s, %s, NULL, %s, %s, %s, false)
+                RETURNING id
+                """,
+                (body.name.strip(), body.prompt_type, body.body, user_id, visibility),
+            )
+            template_id = cur.fetchone()["id"]
+        db.commit()
+
+        audit_log(
+            db, _audit_user_id(current_user), "prompt_library_created",
+            {"template_id": template_id, "visibility": visibility}, request,
+            "prompt_library", str(template_id),
+        )
+        return {"success": True, "template_id": template_id, "visibility": visibility}
+    except HTTPException:
+        raise
+    except psycopg2.ProgrammingError as e:
+        db.rollback()
+        if "does not exist" in str(e).lower():
+            raise HTTPException(status_code=400, detail="Выполните миграцию 009_user_runtime_and_prompt_sharing.sql.")
+        raise
+    except Exception as e:
+        logger.error("Ошибка создания шаблона prompt_library: %s", e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/prompt-library/templates/{template_id}/sharing", response_class=JSONResponse)
+async def update_prompt_library_template_sharing(
+    request: Request,
+    template_id: int,
+    body: PromptLibraryTemplateSharingUpdate,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
+    """Меняет видимость пользовательского шаблона prompt_library (public/private)."""
+    try:
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=body.user_telegram_id)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
+        visibility = "public" if body.share_to_library else "private"
+
+        with db.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE prompt_library
+                SET visibility = %s, updated_at = now()
+                WHERE id = %s
+                  AND owner_user_id = %s
+                  AND COALESCE(is_base, false) = false
+                """,
+                (visibility, template_id, user_id),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Шаблон не найден или нет прав на изменение")
+        db.commit()
+
+        audit_log(
+            db, _audit_user_id(current_user), "prompt_library_sharing_updated",
+            {"template_id": template_id, "visibility": visibility}, request,
+            "prompt_library", str(template_id),
+        )
+        return {"success": True, "template_id": template_id, "visibility": visibility}
+    except HTTPException:
+        raise
+    except psycopg2.ProgrammingError as e:
+        db.rollback()
+        if "does not exist" in str(e).lower():
+            raise HTTPException(status_code=400, detail="Выполните миграцию 009_user_runtime_and_prompt_sharing.sql.")
+        raise
+    except Exception as e:
+        logger.error("Ошибка изменения видимости шаблона prompt_library: %s", e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/channels/{channel_id}/prompts", response_class=JSONResponse)
 async def get_channel_prompts(
     channel_id: int,
-    user_telegram_id: int,
+    user_telegram_id: Optional[str] = None,
     prompt_type: Optional[str] = None,
     current_user: Optional[str] = Depends(get_current_auth_user),
     db=Depends(get_db),
 ):
     """Возвращает промпты канала для редактирования"""
     try:
-        user_id = get_or_create_user(db, user_telegram_id, None)
+        user_telegram_id_i = _parse_user_telegram_id(user_telegram_id)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id_i)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
         
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Проверяем что канал принадлежит пользователю
@@ -1622,7 +2526,7 @@ async def get_channel_prompts(
 async def create_channel_prompt(
     request: Request,
     channel_id: int,
-    user_telegram_id: int = Form(...),
+    user_telegram_id: Optional[str] = Form(None),
     prompt_type: str = Form(...),
     name: str = Form(...),
     text: str = Form(...),
@@ -1632,7 +2536,10 @@ async def create_channel_prompt(
 ):
     """Создаёт новый промпт для канала"""
     try:
-        user_id = get_or_create_user(db, user_telegram_id, None)
+        user_telegram_id_i = _parse_user_telegram_id(user_telegram_id)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id_i)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
         
         if prompt_type not in ['digest', 'consolidated']:
             raise HTTPException(status_code=400, detail="prompt_type должен быть 'digest' или 'consolidated'")
@@ -1685,7 +2592,7 @@ async def update_channel_prompt(
     request: Request,
     channel_id: int,
     prompt_id: int,
-    user_telegram_id: int = Form(...),
+    user_telegram_id: Optional[str] = Form(None),
     name: Optional[str] = Form(None),
     text: Optional[str] = Form(None),
     is_default: Optional[bool] = Form(None),
@@ -1694,7 +2601,10 @@ async def update_channel_prompt(
 ):
     """Обновляет промпт канала"""
     try:
-        user_id = get_or_create_user(db, user_telegram_id, None)
+        user_telegram_id_i = _parse_user_telegram_id(user_telegram_id)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id_i)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
         
         with db.cursor() as cur:
             # Проверяем что промпт принадлежит каналу пользователя
@@ -1769,13 +2679,16 @@ async def delete_channel_prompt(
     request: Request,
     channel_id: int,
     prompt_id: int,
-    user_telegram_id: int,
+    user_telegram_id: Optional[str] = None,
     current_user: Optional[str] = Depends(get_current_auth_user),
     db=Depends(get_db),
 ):
     """Удаляет промпт канала"""
     try:
-        user_id = get_or_create_user(db, user_telegram_id, None)
+        user_telegram_id_i = _parse_user_telegram_id(user_telegram_id)
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id_i)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
         
         with db.cursor() as cur:
             # Проверяем что промпт принадлежит каналу пользователя

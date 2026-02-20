@@ -444,6 +444,7 @@
                             id="userTelegramId" 
                             name="user_telegram_id"
                             placeholder="Например: 499412926"
+                            value="{{ user_telegram_id }}"
                             required
                         />
                         <button type="button" class="btn-check" id="checkUserBtn" aria-label="Проверить ID">Проверить</button>
@@ -568,6 +569,11 @@
                 promptsTab.href = `/prompts?user_telegram_id=${userId}`;
             } else if (promptsTab) {
                 promptsTab.href = '/prompts';
+            }
+        });
+        window.addEventListener('DOMContentLoaded', () => {
+            if (userTelegramIdInput && userTelegramIdInput.value) {
+                userTelegramIdInput.dispatchEvent(new Event('input'));
             }
         });
         
@@ -725,21 +731,7 @@
             submitBtn.innerHTML = '<span class="material-icons" style="font-size: 18px;">hourglass_empty</span> Добавление...';
             
             try {
-                // Сначала создаём/получаем пользователя
-                const userResponse = await fetch('/api/users', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        telegram_id: parseInt(userTelegramId),
-                        name: null
-                    })
-                });
-                
-                if (!userResponse.ok) {
-                    throw new Error('Ошибка создания пользователя');
-                }
-                
-                // Затем добавляем канал
+                // Добавляем канал
                 // Очищаем предыдущие ошибки по полям
                 document.querySelectorAll('.field-error').forEach(el => { el.textContent = ''; el.classList.remove('field-success'); });
                 document.querySelectorAll('.form-group.has-error').forEach(el => el.classList.remove('has-error'));

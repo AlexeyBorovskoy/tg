@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Digest Auth Mockup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f2f4ef;
+            --panel: #ffffff;
+            --line: #d7dbcf;
+            --text: #1f271b;
+            --muted: #5f6857;
+            --brand: #145a4a;
+            --brand-2: #1e7a65;
+            --warn: #a45f17;
+            --ok: #2d7a3e;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Manrope", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 20% 20%, #dbeee4 0, transparent 35%),
+                radial-gradient(circle at 85% 10%, #f3e8d7 0, transparent 30%),
+                var(--bg);
+        }
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--line);
+            background: rgba(242, 244, 239, 0.92);
+            backdrop-filter: blur(6px);
+        }
+        .topbar a {
+            text-decoration: none;
+            color: var(--text);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-weight: 600;
+            background: #fff;
+        }
+        .topbar a:hover {
+            border-color: var(--brand);
+            color: var(--brand);
+        }
+        .page {
+            max-width: 1020px;
+            margin: 28px auto;
+            padding: 0 16px 32px;
+        }
+        .screen {
+            margin-bottom: 24px;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            overflow: hidden;
+            background: var(--panel);
+            box-shadow: 0 12px 24px rgba(20, 90, 74, 0.08);
+        }
+        .screen-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--line);
+            padding: 12px 16px;
+            background: #f8faf7;
+        }
+        .screen-head h2 {
+            margin: 0;
+            font-size: 15px;
+            letter-spacing: 0.02em;
+        }
+        .chip {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--brand);
+            border: 1px solid #b9d7ca;
+            border-radius: 999px;
+            padding: 4px 10px;
+            background: #edf7f3;
+        }
+        .content {
+            padding: 20px;
+        }
+        .hero {
+            margin-bottom: 14px;
+        }
+        .hero h3 {
+            margin: 0 0 6px 0;
+            font-size: 24px;
+            line-height: 1.1;
+        }
+        .hero p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 14px;
+        }
+        .layout-2 {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 18px;
+        }
+        @media (min-width: 900px) {
+            .layout-2 { grid-template-columns: 1fr 1fr; }
+        }
+        .card {
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 14px;
+            background: #fff;
+        }
+        .card h4 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+        label {
+            display: block;
+            margin: 8px 0 4px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #30442d;
+        }
+        input {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 10px 11px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        input:focus {
+            outline: none;
+            border-color: var(--brand-2);
+            box-shadow: 0 0 0 3px rgba(30, 122, 101, 0.12);
+        }
+        .hint {
+            margin-top: 5px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .btn {
+            display: inline-block;
+            margin-top: 12px;
+            background: var(--brand);
+            color: #fff;
+            border: 0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .btn.secondary {
+            background: #fff;
+            color: var(--brand);
+            border: 1px solid #9fc4b7;
+            margin-left: 8px;
+        }
+        .msg {
+            margin-top: 12px;
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 13px;
+            border: 1px solid;
+        }
+        .msg.ok {
+            color: var(--ok);
+            border-color: #b7dfc2;
+            background: #edf8ef;
+        }
+        .msg.warn {
+            color: var(--warn);
+            border-color: #ebd1af;
+            background: #fdf5ea;
+        }
+        .steps {
+            margin: 0;
+            padding-left: 18px;
+        }
+        .steps li {
+            margin-bottom: 9px;
+            line-height: 1.45;
+            font-size: 14px;
+        }
+        .code {
+            margin-top: 8px;
+            border: 1px solid #c9d5cc;
+            border-radius: 10px;
+            background: #f6faf7;
+            padding: 10px;
+            font-family: "IBM Plex Mono", monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .kpi {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .kpi div {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px;
+            background: #fafcf9;
+            font-size: 12px;
+        }
+        .kpi b {
+            display: block;
+            margin-top: 4px;
+            font-size: 14px;
+            color: #204032;
+        }
+    </style>
+</head>
+<body>
+    <nav class="topbar">
+        <a href="#login">Login</a>
+        <a href="#register">Register</a>
+        <a href="#setup">Setup + Инструкции</a>
+    </nav>
+
+    <main class="page">
+        <section class="screen" id="login">
+            <div class="screen-head">
+                <h2>Экран авторизации</h2>
+                <span class="chip">Mockup</span>
+            </div>
+            <div class="content">
+                <div class="hero">
+                    <h3>Вход в TG Digest</h3>
+                    <p>Тестовый контур: вход по логину и паролю.</p>
+                </div>
+                <div class="layout-2">
+                    <div class="card">
+                        <h4>Форма</h4>
+                        <label>Логин</label>
+                        <input placeholder="например: alexey_admin">
+                        <label>Пароль</label>
+                        <input type="password" placeholder="••••••••">
+                        <div class="btn">Войти</div>
+                        <div class="hint">После входа: автоматический переход на персональную настройку.</div>
+                        <div class="msg warn">Нет аккаунта? Кнопка "Зарегистрироваться" рядом с формой.</div>
+                    </div>
+                    <div class="card">
+                        <h4>Тексты и поведение</h4>
+                        <ul class="steps">
+                            <li>Валидатор пустых полей: "Введите логин и пароль".</li>
+                            <li>Ошибка авторизации: "Неверный логин или пароль".</li>
+                            <li>Успех: редирект на `/setup`.</li>
+                        </ul>
+                        <div class="code">Пример next:
+/login?next=/channels</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="screen" id="register">
+            <div class="screen-head">
+                <h2>Экран регистрации</h2>
+                <span class="chip">Mockup</span>
+            </div>
+            <div class="content">
+                <div class="hero">
+                    <h3>Регистрация пользователя</h3>
+                    <p>Создание login/password и привязка к Telegram ID пользователя.</p>
+                </div>
+                <div class="layout-2">
+                    <div class="card">
+                        <h4>Форма</h4>
+                        <label>Логин</label>
+                        <input placeholder="my_login_01">
+                        <div class="hint">Латиница, цифры, `_`, `-`, `.`, 3-64 символа.</div>
+                        <label>Telegram ID</label>
+                        <input placeholder="499412926">
+                        <div class="hint">Пример из @userinfobot.</div>
+                        <label>Пароль</label>
+                        <input type="password" placeholder="минимум 8 символов">
+                        <label>Повторите пароль</label>
+                        <input type="password" placeholder="еще раз пароль">
+                        <div class="btn">Зарегистрироваться</div>
+                    </div>
+                    <div class="card">
+                        <h4>Проверки</h4>
+                        <ul class="steps">
+                            <li>Логин занят.</li>
+                            <li>Пароли не совпадают.</li>
+                            <li>Telegram ID не число или = 0.</li>
+                            <li>Для Telegram ID уже есть local login.</li>
+                        </ul>
+                        <div class="msg ok">Успех: создается запись в БД и сразу открывается `/setup`.</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="screen" id="setup">
+            <div class="screen-head">
+                <h2>Персональная настройка + инструкции Telethon</h2>
+                <span class="chip">Mockup</span>
+            </div>
+            <div class="content">
+                <div class="hero">
+                    <h3>Первичная настройка пользователя</h3>
+                    <p>Сохраняем в БД `api_id`, `api_hash`, `session_file`, бот-токен, затем делаем интерактивный вход Telethon.</p>
+                </div>
+
+                <div class="kpi">
+                    <div>User ID<b>7</b></div>
+                    <div>Telegram ID<b>499412926</b></div>
+                    <div>Secret file<b>/app/data/user-secrets/user_7.env</b></div>
+                </div>
+
+                <div class="layout-2">
+                    <div class="card">
+                        <h4>Форма runtime-настроек</h4>
+                        <label>TG API ID</label>
+                        <input placeholder="12345678">
+                        <label>TG API HASH</label>
+                        <input placeholder="0123456789abcdef0123456789abcdef">
+                        <label>Телефон Telegram</label>
+                        <input placeholder="+79991234567">
+                        <label>Session file</label>
+                        <input placeholder="/app/data/user-sessions/user_7.session">
+                        <label>BOT TOKEN (опционально)</label>
+                        <input placeholder="123456789:AA....">
+                        <div>
+                            <span class="btn">Сохранить в БД</span>
+                            <span class="btn secondary">Обновить</span>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h4>Инструкция авторизации Telethon</h4>
+                        <ol class="steps">
+                            <li>Зайдите на <b>my.telegram.org</b>, создайте приложение, получите `api_id/api_hash`.</li>
+                            <li>Сохраните данные в форме слева.</li>
+                            <li>Выполните команду ниже в терминале.</li>
+                            <li>Введите номер телефона и код из Telegram.</li>
+                            <li>Проверьте, что `.session` создан.</li>
+                        </ol>
+                        <div class="code">cd tg_digest_system/scripts
+TG_API_ID=12345678 \
+TG_API_HASH=0123456789abcdef0123456789abcdef \
+TG_SESSION_FILE=/app/data/user-sessions/user_7.session \
+python3 auth_telethon.py</div>
+                        <div class="msg warn">Пока нет session-файла, сервис не сможет читать пользовательские чаты.</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

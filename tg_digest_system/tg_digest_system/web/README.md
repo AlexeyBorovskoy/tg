@@ -47,6 +47,21 @@ python web_api.py
 - `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` - PostgreSQL
 - `TG_API_ID`, `TG_API_HASH`, `TG_SESSION_FILE` - Telegram API
 
+Для тестового входа по `login/password`:
+- `AUTH_LOCAL_ENABLED=1`
+- `AUTH_LOCAL_SESSION_DAYS=30` (опционально)
+- `AUTH_LOCAL_MIN_PASSWORD_LEN=8` (опционально)
+
+После включения local auth доступны:
+- `GET/POST /register` — регистрация `login/password` + привязка `telegram_id`
+- `GET/POST /login` — вход по `login/password`
+- `GET /setup` — персональная страница первичной настройки Telethon/бота
+
+Поведение:
+- после успешного входа/регистрации пользователь по умолчанию попадает на `/setup`;
+- на `/setup` есть форма сохранения `tg_api_id/tg_api_hash/session_file/bot_token` в БД
+  и пошаговая инструкция для интерактивной авторизации Telethon (ввод кода из Telegram).
+
 ## Интеграция с воркером
 
 Воркер (`digest_worker.py`) автоматически загружает каналы из БД через `config_db.py`:
