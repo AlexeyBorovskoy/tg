@@ -43,7 +43,7 @@
             <form id="runtimeForm">
                 <label for="tgApiId">API ID</label>
                 <input id="tgApiId" type="number" placeholder="12345678" required>
-                <p class="hint">Берется на <code>my.telegram.org</code> -> <code>API development tools</code>.</p>
+                <p class="hint">Берется на <code>my.telegram.org/apps</code> (раздел <code>API development tools</code>).</p>
 
                 <label for="tgApiHash">API Hash</label>
                 <input id="tgApiHash" type="text" placeholder="0123456789abcdef0123456789abcdef" required>
@@ -76,11 +76,20 @@
 
         <article class="card">
             <h3>Где взять API ID и API Hash</h3>
+            <div class="alert warn" style="margin-bottom:10px;">
+                Если Telegram просит "зарегистрировать разработку", это штатно: сначала нужно создать приложение, и только потом появятся <code>api_id</code> и <code>api_hash</code>.
+            </div>
             <ol class="steps">
                 <li>Откройте <code>https://my.telegram.org</code>.</li>
                 <li>Войдите по вашему номеру и одноразовому коду Telegram.</li>
-                <li>Откройте <code>API development tools</code>.</li>
-                <li>Скопируйте значения в форму слева.</li>
+                <li>Откройте <code>API development tools</code> (или сразу <code>https://my.telegram.org/apps</code>).</li>
+                <li>Если данных нет, заполните форму создания приложения:
+                    <br><code>App title</code> = <code>TG Digest Alex</code>,
+                    <code>Short name</code> = <code>tg_digest_alex</code>,
+                    <code>Platform</code> = <code>Desktop</code>,
+                    <code>URL</code> = <code>https://example.com</code>.
+                </li>
+                <li>Нажмите <code>Create application</code> и скопируйте значения в форму слева.</li>
             </ol>
             <div class="code">Пример:
 phone    = +79991234567

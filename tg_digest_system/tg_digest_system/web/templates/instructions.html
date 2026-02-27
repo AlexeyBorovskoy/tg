@@ -334,9 +334,39 @@
                 </div>
             </div>
             
-            <!-- Шаг 2: ID чата/канала -->
+            <!-- Шаг 2: Регистрация Telegram developer app -->
             <div class="step">
                 <div class="step-number">2</div>
+                <div class="step-title">Получить API ID и API Hash (обязательно для Telethon)</div>
+                <div class="step-description">
+                    Значения <code>api_id</code> и <code>api_hash</code> не выдаются автоматически. 
+                    Сначала нужно зарегистрировать приложение разработчика в Telegram.
+                </div>
+
+                <ol class="step-list" style="margin-top: 12px;">
+                    <li>Откройте <code>https://my.telegram.org</code> и войдите по номеру телефона.</li>
+                    <li>Перейдите в <code>API development tools</code> (или сразу <code>https://my.telegram.org/apps</code>).</li>
+                    <li>Если Telegram просит "зарегистрировать разработку", заполните форму:
+                        <ul style="margin-left: 20px; margin-top: 8px;">
+                            <li><code>App title</code>: например <code>TG Digest Alex</code></li>
+                            <li><code>Short name</code>: например <code>tg_digest_alex</code> (латиница/цифры/подчеркивание)</li>
+                            <li><code>Platform</code>: <code>Desktop</code></li>
+                            <li><code>URL</code>: например <code>https://example.com</code></li>
+                        </ul>
+                    </li>
+                    <li>Нажмите <code>Create application</code>.</li>
+                    <li>Скопируйте выданные <code>api_id</code> и <code>api_hash</code> в страницу <code>/setup</code>.</li>
+                </ol>
+
+                <div class="warning-box">
+                    <strong>Важно:</strong> Это делается один раз на аккаунт Telegram. 
+                    Без этого шага авторизация Telethon в сервисе невозможна.
+                </div>
+            </div>
+
+            <!-- Шаг 3: ID чата/канала -->
+            <div class="step">
+                <div class="step-number">3</div>
                 <div class="step-title">Узнать ID чата или канала</div>
                 <div class="step-description">
                     Для добавления чата в систему вам нужен его Telegram ID. Способ зависит от типа чата:
@@ -380,9 +410,9 @@
                 </div>
             </div>
             
-            <!-- Шаг 3: ID получателя дайджестов -->
+            <!-- Шаг 4: ID получателя дайджестов -->
             <div class="step">
-                <div class="step-number">3</div>
+                <div class="step-number">4</div>
                 <div class="step-title">Указать куда присылать дайджесты</div>
                 <div class="step-description">
                     Вы можете получать дайджесты в личные сообщения или через бота:
@@ -413,9 +443,9 @@
                 </div>
             </div>
             
-            <!-- Шаг 4: Проверка доступа -->
+            <!-- Шаг 5: Проверка доступа -->
             <div class="step">
-                <div class="step-number">4</div>
+                <div class="step-number">5</div>
                 <div class="step-title">Проверить доступ системы к чату</div>
                 <div class="step-description">
                     Система работает только с чатами, где она присутствует. Перед добавлением убедитесь:
@@ -433,9 +463,9 @@
                 </div>
             </div>
             
-            <!-- Шаг 5: Добавление канала -->
+            <!-- Шаг 6: Добавление канала -->
             <div class="step">
-                <div class="step-number">5</div>
+                <div class="step-number">6</div>
                 <div class="step-title">Добавить канал в систему</div>
                 <div class="step-description">
                     После получения всех данных:
