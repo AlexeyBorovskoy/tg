@@ -52,6 +52,12 @@ python web_api.py
 - `AUTH_LOCAL_SESSION_DAYS=30` (опционально)
 - `AUTH_LOCAL_MIN_PASSWORD_LEN=8` (опционально)
 
+Для входа через Яндекс OAuth:
+- `AUTH_OWN_ENABLED=1`
+- `YANDEX_OAUTH_CLIENT_ID=<...>`
+- `YANDEX_OAUTH_CLIENT_SECRET=<...>`
+- `BASE_URL=http(s)://<ваш_домен_или_ip>:<порт>`
+
 После включения local auth доступны:
 - `GET/POST /register` — регистрация `login/password` + привязка `telegram_id`
 - `GET/POST /login` — вход по `login/password`
@@ -61,6 +67,8 @@ python web_api.py
 - после успешного входа/регистрации пользователь по умолчанию попадает на `/setup`;
 - на `/setup` есть форма сохранения `tg_api_id/tg_api_hash/session_file/bot_token` в БД
   и пошаговая инструкция для интерактивной авторизации Telethon (ввод кода из Telegram).
+- при одновременном `AUTH_LOCAL_ENABLED=1` и `AUTH_OWN_ENABLED=1` на `/login`
+  доступны оба способа идентификации: `login/password` и кнопка `Войти через Яндекс`.
 
 ## Интеграция с воркером
 

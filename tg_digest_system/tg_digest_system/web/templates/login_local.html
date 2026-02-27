@@ -33,6 +33,26 @@
                 </div>
             </form>
 
+            {% if oauth_enabled %}
+            <div class="auth-links" style="margin-top: 16px;">
+                Альтернативный вход:
+            </div>
+            <div class="btns" style="margin-top: 8px;">
+                {% if yandex_enabled %}
+                <a class="btn soft" href="/auth/yandex?next={{ next_encoded | e }}">Войти через Яндекс</a>
+                {% else %}
+                <div class="alert warn" style="display:block; width:100%;">
+                    Вход через Яндекс пока не настроен на сервере.
+                    Нужно задать <code>YANDEX_OAUTH_CLIENT_ID</code>, <code>YANDEX_OAUTH_CLIENT_SECRET</code>
+                    и <code>BASE_URL</code> в <code>docker/secrets.env</code>.
+                    {% if yandex_redirect_uri %}
+                    Redirect URI для кабинета Яндекс: <code>{{ yandex_redirect_uri }}</code>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
             <div class="auth-links">
                 Сценарий: вход -> <code>/setup</code> -> подключение Telethon и чатов.
             </div>

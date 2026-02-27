@@ -52,7 +52,9 @@
                 <p class="oauth-setup-hint">На сервере в каталоге <code>docker</code> создайте или отредактируйте файл <code>secrets.env</code> и задайте переменные:</p>
                 <ul class="oauth-setup-list">
                     <li><code>YANDEX_OAUTH_CLIENT_ID</code>, <code>YANDEX_OAUTH_CLIENT_SECRET</code> — из кабинета Яндекс OAuth;</li>
-                    <li><code>BASE_URL=http://93.77.185.71:8000</code> (адрес приложения, без слэша в конце).</li>
+                    <li><code>BASE_URL</code> (адрес приложения, без слэша в конце), например:
+                        <code>{{ yandex_redirect_uri.replace('/auth/yandex/callback', '') if yandex_redirect_uri else 'http://<host>:<port>' }}</code>
+                    </li>
                 </ul>
                 <p class="oauth-setup-hint">После сохранения выполните: <code>docker compose up -d --force-recreate web</code>. Подробнее — README, раздел «OAuth Яндекс».</p>
             </div>

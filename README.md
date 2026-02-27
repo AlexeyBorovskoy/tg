@@ -171,6 +171,10 @@ docker compose logs -f worker
 - OAuth-поток (Яндекс) и JWT-сессия,
 - локальная auth login/password для тестового контура (таблица `user_local_auth`, миграция `010_local_login_password_auth.sql`),
 - внешний auth-сервис (опционально, см. `tg_digest_system/tg_digest_system/docker/secrets.env.example`).
+- при включении одновременно `AUTH_LOCAL_ENABLED=1` и `AUTH_OWN_ENABLED=1` на `/login`
+  доступны оба способа входа: `login/password` и `Войти через Яндекс`.
+- для Яндекс OAuth в `secrets.env` обязательны `YANDEX_OAUTH_CLIENT_ID`,
+  `YANDEX_OAUTH_CLIENT_SECRET`, `BASE_URL`.
 
 ---
 
@@ -246,4 +250,3 @@ docker exec -it tg_digest_worker python /app/scripts/digest_worker.py --once --s
 - Не коммитьте секреты: используйте `docker/secrets.env`.
 - Для web UI используйте авторизацию (OAuth/JWT или внешний auth).
 - Для git push из прода используйте deploy key с минимальными правами.
-
