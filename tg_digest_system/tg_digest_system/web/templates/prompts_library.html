@@ -1,305 +1,633 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+    <link rel="stylesheet" href="/static/platform_shell.css">
+    <script src="/static/platform_shell.js" defer></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Библиотека промптов — TG Digest</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; color: #212121; }
-        .header { background: #fff; border-bottom: 1px solid #e0e0e0; padding: 0 24px; height: 56px; display: flex; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .header-title { font-size: 18px; font-weight: 400; color: #212121; display: flex; align-items: center; gap: 12px; }
-        .header-title .material-icons { font-size: 24px; color: #424242; }
-        .tabs { background: #fff; border-bottom: 1px solid #e0e0e0; display: flex; padding: 0 24px; flex-shrink: 0; }
-        .tab { padding: 14px 20px; font-size: 13px; font-weight: 500; color: #78909c; text-decoration: none; display: inline-block; border-bottom: 2px solid transparent; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
-        .tab:hover { color: #37474f; }
-        .tab.active { color: #1976d2; border-bottom-color: #1976d2; }
-        .container { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
-        .page-header { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-        .page-header h1 { font-size: 24px; font-weight: 400; color: #212121; margin-bottom: 8px; }
-        .content-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-        .user-input { display: flex; gap: 12px; align-items: flex-end; margin-bottom: 24px; }
-        .user-input label { display: block; margin-bottom: 8px; font-weight: 500; color: #424242; font-size: 14px; }
-        .user-input input { padding: 10px 14px; border: 1px solid #e0e0e0; border-radius: 4px; font-size: 14px; width: 220px; }
-        .btn-load { background: #1976d2; color: #fff; border: none; padding: 10px 24px; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
-        .btn-load:hover { background: #1565c0; }
-        .channel-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
-        .channel-card h3 { font-size: 16px; color: #1976d2; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-        .prompt-type-section { margin-bottom: 16px; }
-        .prompt-type-section:last-child { margin-bottom: 0; }
-        .prompt-type-section h4 { font-size: 13px; color: #616161; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .prompt-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #fafafa; border-radius: 4px; margin-bottom: 6px; border: 1px solid #eee; }
-        .prompt-row .name { font-weight: 500; color: #212121; }
-        .prompt-row .preview { font-size: 12px; color: #757575; margin-top: 4px; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .prompt-row .badge { font-size: 11px; background: #e3f2fd; color: #1976d2; padding: 2px 8px; border-radius: 10px; margin-left: 8px; }
-        .prompt-row .actions { display: flex; gap: 8px; }
-        .btn-sm { padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; border: none; background: #e0e0e0; color: #424242; display: inline-flex; align-items: center; gap: 4px; }
-        .btn-sm:hover { background: #d0d0d0; }
-        .btn-sm.primary { background: #1976d2; color: #fff; }
-        .btn-sm.primary:hover { background: #1565c0; }
-        .btn-sm.danger { background: #ffebee; color: #c62828; }
-        .btn-sm.danger:hover { background: #ffcdd2; }
-        .btn-add { margin-top: 8px; font-size: 13px; }
-        .link-detail { font-size: 13px; color: #1976d2; text-decoration: none; margin-left: auto; }
-        .link-detail:hover { text-decoration: underline; }
-        .loading { text-align: center; padding: 40px; color: #757575; }
-        .empty-state { text-align: center; padding: 40px; color: #78909c; }
-        .alert { padding: 12px 16px; border-radius: 4px; margin-bottom: 16px; display: none; }
-        .alert.show { display: block; }
-        .alert.success { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
-        .alert.error { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
-        .modal-overlay.show { display: flex; }
-        .modal-content { background: #fff; border-radius: 8px; padding: 24px; max-width: 560px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
-        .modal-content h3 { margin: 0 0 20px 0; font-size: 18px; color: #212121; }
-        .modal-content .form-group { margin-bottom: 16px; }
-        .modal-content label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 500; color: #424242; }
-        .modal-content input, .modal-content select, .modal-content textarea { width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 4px; font-size: 14px; }
-        .modal-content textarea { min-height: 120px; resize: vertical; font-family: inherit; }
-        .modal-actions { margin-top: 24px; display: flex; gap: 12px; justify-content: flex-end; }
-        .modal-actions .btn { padding: 10px 20px; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; }
-        .modal-actions .btn-primary { background: #1976d2; color: #fff; }
-        .modal-actions .btn-primary:hover { background: #1565c0; }
-        .modal-actions .btn-secondary { background: #f5f5f5; color: #424242; }
-        .modal-actions .btn-secondary:hover { background: #e0e0e0; }
-        .info-box { background: #e3f2fd; border-left: 4px solid #1976d2; padding: 16px; margin-bottom: 20px; border-radius: 4px; font-size: 14px; }
+        body {
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            background: #edf1f5;
+            color: #26323f;
+        }
+
+        .header {
+            background: #fff;
+            border-bottom: 1px solid #d7dde6;
+            padding: 0 18px;
+            height: 54px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header .title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2f3b48;
+            margin-right: auto;
+        }
+
+        .tabs {
+            background: #fff;
+            border-bottom: 1px solid #d7dde6;
+            display: flex;
+            padding: 0 14px;
+        }
+
+        .tab {
+            text-decoration: none;
+            color: #6e7b88;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: .04em;
+            padding: 12px 12px;
+            border-bottom: 2px solid transparent;
+            text-transform: uppercase;
+        }
+
+        .tab.active {
+            color: #2f6ea6;
+            border-bottom-color: #2f6ea6;
+        }
+
+        .container {
+            max-width: 1500px;
+            margin: 14px auto;
+            padding: 0 16px;
+        }
+
+        .page-head {
+            background: #fff;
+            border: 1px solid #d7dde6;
+            border-radius: 6px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+        }
+
+        .page-head h1 {
+            margin: 0 0 6px;
+            font-size: 21px;
+            font-weight: 600;
+            color: #2d3a47;
+        }
+
+        .page-head p {
+            margin: 0;
+            font-size: 13px;
+            color: #6c7887;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .panel {
+            background: #fff;
+            border: 1px solid #d7dde6;
+            border-radius: 6px;
+            min-height: 540px;
+        }
+
+        .panel-head {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e2e8ef;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .panel-head h2,
+        .panel-head h3 {
+            margin: 0;
+            font-size: 13px;
+            font-weight: 700;
+            color: #344252;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            margin-right: auto;
+        }
+
+        .btn {
+            border: 1px solid #c8d2dd;
+            background: #f7fafc;
+            color: #344252;
+            border-radius: 4px;
+            padding: 7px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .btn.primary {
+            background: #2f6ea6;
+            border-color: #2f6ea6;
+            color: #fff;
+        }
+
+        .btn.secondary {
+            background: #eef3f8;
+        }
+
+        .filters {
+            display: flex;
+            gap: 6px;
+            padding: 10px 10px 0;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            border: 1px solid #d0d8e3;
+            background: #fff;
+            color: #4f6072;
+            border-radius: 4px;
+            padding: 6px 9px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .filter-btn.active {
+            background: #dfeaf6;
+            border-color: #9fb9d6;
+            color: #2b5f8f;
+        }
+
+        .templates-list {
+            max-height: 460px;
+            overflow: auto;
+            padding: 8px 10px 12px;
+        }
+
+        .template-item {
+            border: 1px solid #dde4ec;
+            border-radius: 4px;
+            padding: 8px 9px;
+            margin-bottom: 8px;
+            background: #fbfcfe;
+            cursor: pointer;
+        }
+
+        .template-item.active {
+            background: #e7f0fa;
+            border-color: #98b6d6;
+        }
+
+        .template-item h4 {
+            margin: 0 0 4px;
+            font-size: 13px;
+            color: #283746;
+            font-weight: 600;
+        }
+
+        .template-meta {
+            font-size: 11px;
+            color: #66798b;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .pill {
+            background: #f0f4f9;
+            border: 1px solid #d4dde8;
+            border-radius: 10px;
+            padding: 1px 7px;
+            font-size: 11px;
+            color: #4f6276;
+            font-weight: 600;
+        }
+
+        .panel-body {
+            padding: 12px;
+        }
+
+        .selected-meta {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .full-prompt {
+            width: 100%;
+            min-height: 430px;
+            border: 1px solid #cad4df;
+            border-radius: 4px;
+            padding: 10px;
+            font-size: 13px;
+            line-height: 1.5;
+            font-family: 'Consolas', 'Courier New', monospace;
+            resize: vertical;
+            background: #fff;
+            color: #253341;
+        }
+
+        .editor-card {
+            background: #fff;
+            border: 1px solid #d7dde6;
+            border-radius: 6px;
+            padding: 14px;
+        }
+
+        .editor-card h3 {
+            margin: 0 0 10px;
+            font-size: 16px;
+            color: #2f3d4b;
+        }
+
+        .form-row {
+            margin-bottom: 10px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 700;
+            color: #4f6073;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: .03em;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            border: 1px solid #c8d3de;
+            border-radius: 4px;
+            padding: 9px 10px;
+            font-size: 13px;
+            color: #273746;
+            background: #fff;
+            font-family: inherit;
+        }
+
+        textarea#promptBody {
+            min-height: 260px;
+            resize: vertical;
+            line-height: 1.5;
+            font-family: 'Consolas', 'Courier New', monospace;
+        }
+
+        .hint {
+            margin-top: 3px;
+            font-size: 12px;
+            color: #6f7d8b;
+        }
+
+        .alert {
+            margin-top: 10px;
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            border: 1px solid;
+            display: none;
+        }
+
+        .alert.ok {
+            background: #ecf7f1;
+            border-color: #b7dec9;
+            color: #2d6b4a;
+            display: block;
+        }
+
+        .alert.err {
+            background: #fff1f1;
+            border-color: #e7c0c0;
+            color: #8f3434;
+            display: block;
+        }
+
+        .empty {
+            padding: 18px 12px;
+            font-size: 13px;
+            color: #6b7988;
+        }
+
+        @media (max-width: 1240px) {
+            .workspace {
+                grid-template-columns: 1fr;
+            }
+
+            .full-prompt {
+                min-height: 300px;
+            }
+        }
     </style>
 </head>
 <body>
     <header class="header">
-        <div class="header-title">
-            <span class="material-icons">settings</span>
-            TG Digest System
-        </div>
+        <div class="title">Платформа TG Digest</div>
     </header>
     <div class="tabs">
-        <a href="/" class="tab">ДОБАВЛЕНИЕ КАНАЛА</a>
-        <a href="/channels" class="tab">МОИ КАНАЛЫ</a>
-        <a href="/prompts" class="tab active">ПРОМПТЫ</a>
-        <a href="/instructions" class="tab">ИНСТРУКЦИИ</a>
+        <a class="tab" href="/setup">Настройка</a>
+        <a class="tab" href="/">Добавление канала</a>
+        <a class="tab" href="/channels">Мои каналы</a>
+        <a class="tab active" href="/prompts">Промпты</a>
+        <a class="tab" href="/instructions">Инструкции</a>
+        <a class="tab" href="/users">Пользователи</a>
     </div>
-    <div class="container">
-        <div class="page-header">
+
+    <main class="container">
+        <section class="page-head">
             <h1>Библиотека промптов</h1>
-            <p>Все промпты по каналам. Изменения сохраняются в БД и сразу используются воркером при общении с ChatGPT.</p>
-        </div>
-        <div class="content-card">
-            <div id="alert" class="alert"></div>
-            <div class="info-box">
-                Введите ваш Telegram ID и нажмите «Загрузить» — отобразятся каналы и их промпты. Можно добавлять новые, редактировать и удалять. После сохранения воркер использует обновлённые промпты при следующем запуске.
-            </div>
-            <div class="user-input">
-                <div>
-                    <label for="userTelegramId">Ваш Telegram ID:</label>
-                    <input type="number" id="userTelegramId" placeholder="499412926" value="{{ user_telegram_id if user_telegram_id else (remote_user if remote_user and remote_user.isdigit() else '') }}" />
+            <p>Вы видите системные промпты по умолчанию, публичные и личные. Полный текст выбранного промпта отображается справа без обрезки.</p>
+        </section>
+
+        <section class="workspace">
+            <article class="panel">
+                <div class="panel-head">
+                    <h2>Список промптов</h2>
+                    <button class="btn secondary" id="syncBtn" type="button">Синхронизировать defaults</button>
+                    <button class="btn" id="reloadBtn" type="button">Обновить</button>
                 </div>
-                <button type="button" class="btn-load" id="btnLoad">
-                    <span class="material-icons" style="font-size: 18px;">refresh</span>
-                    Загрузить библиотеку
-                </button>
-            </div>
-            <div id="loading" class="loading" style="display: none;">Загрузка...</div>
-            <div id="libraryContent" style="display: none;"></div>
-            <div id="emptyState" class="empty-state" style="display: none;">Нет каналов. Добавьте канал на странице «Добавление канала».</div>
-        </div>
-    </div>
+                <div class="filters">
+                    <button class="filter-btn active" type="button" data-filter="defaults">Системные</button>
+                    <button class="filter-btn" type="button" data-filter="mine">Мои</button>
+                    <button class="filter-btn" type="button" data-filter="public">Публичные</button>
+                    <button class="filter-btn" type="button" data-filter="all">Все</button>
+                </div>
+                <div id="templatesList" class="templates-list"></div>
+            </article>
 
-    <!-- Модальное окно: редактирование / создание промпта -->
-    <div id="editModal" class="modal-overlay">
-        <div class="modal-content">
-            <h3 id="editModalTitle">Редактировать промпт</h3>
-            <input type="hidden" id="editChannelId" />
-            <input type="hidden" id="editPromptId" />
-            <input type="hidden" id="editPromptType" />
-            <div class="form-group">
-                <label for="editPromptName">Название промпта</label>
-                <input type="text" id="editPromptName" placeholder="Например: Дайджест по умолчанию" />
-            </div>
-            <div class="form-group" id="editTypeGroup" style="display: none;">
-                <label for="editTypeSelect">Тип</label>
-                <select id="editTypeSelect">
-                    <option value="digest">Для дайджестов</option>
-                    <option value="consolidated">Для сводного документа</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="editPromptText">Текст промпта (системный промпт для GPT)</label>
-                <textarea id="editPromptText" placeholder="Введите системный промпт..."></textarea>
-            </div>
-            <div class="modal-actions">
-                <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
-                <button type="button" class="btn btn-primary" id="editModalSave">Сохранить</button>
-            </div>
-        </div>
-    </div>
+            <article class="panel">
+                <div class="panel-head">
+                    <h3>Полный текст выбранного промпта</h3>
+                    <button class="btn" id="copySelectedBtn" type="button">Копировать в форму</button>
+                </div>
+                <div class="panel-body">
+                    <div id="selectedMeta" class="selected-meta"></div>
+                    <textarea id="selectedPromptText" class="full-prompt" readonly placeholder="Выберите промпт слева"></textarea>
+                </div>
+            </article>
+        </section>
 
-    <script>
-        const userTelegramIdEl = document.getElementById('userTelegramId');
-        const btnLoad = document.getElementById('btnLoad');
-        const loading = document.getElementById('loading');
-        const libraryContent = document.getElementById('libraryContent');
-        const emptyState = document.getElementById('emptyState');
-        const alertEl = document.getElementById('alert');
-        let libraryData = [];
+        <section class="editor-card">
+            <h3>Добавить пользовательский промпт</h3>
+            <form id="newPromptForm">
+                <div class="form-row">
+                    <label for="promptName">Название</label>
+                    <input id="promptName" type="text" placeholder="например: Моя аналитика" required>
+                </div>
 
-        function showAlert(msg, type) {
-            alertEl.className = 'alert ' + type + ' show';
-            alertEl.textContent = msg;
-            setTimeout(() => alertEl.classList.remove('show'), 5000);
+                <div class="form-row">
+                    <label for="promptType">Тип</label>
+                    <select id="promptType" required>
+                        <option value="digest">Для дайджестов</option>
+                        <option value="consolidated">Для сводного документа</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <label for="promptBody">Текст промпта (полный)</label>
+                    <textarea id="promptBody" placeholder="Введите полный текст промпта" required></textarea>
+                    <div class="hint">Поле многострочное: текст не обрезается и сохраняется целиком.</div>
+                </div>
+
+                <div class="form-row">
+                    <label for="shareToLibrary">Видимость</label>
+                    <select id="shareToLibrary">
+                        <option value="0">Личный (только для меня)</option>
+                        <option value="1">Публичный (в общую библиотеку)</option>
+                    </select>
+                </div>
+
+                <button class="btn primary" type="submit" id="createPromptBtn">Сохранить промпт</button>
+                <div id="topAlert" class="alert"></div>
+            </form>
+        </section>
+    </main>
+
+<script>
+const topAlert = document.getElementById('topAlert');
+const templatesListEl = document.getElementById('templatesList');
+const selectedMetaEl = document.getElementById('selectedMeta');
+const selectedPromptTextEl = document.getElementById('selectedPromptText');
+const copySelectedBtn = document.getElementById('copySelectedBtn');
+
+const syncBtn = document.getElementById('syncBtn');
+const reloadBtn = document.getElementById('reloadBtn');
+const filterButtons = Array.from(document.querySelectorAll('.filter-btn'));
+const newPromptForm = document.getElementById('newPromptForm');
+const createPromptBtn = document.getElementById('createPromptBtn');
+
+let templates = [];
+let selectedTemplateId = null;
+let activeFilter = 'defaults';
+
+function showAlert(message, kind = 'ok') {
+    topAlert.className = 'alert ' + kind;
+    topAlert.textContent = message;
+    topAlert.style.display = 'block';
+}
+
+function extractError(payload, fallback) {
+    if (!payload) return fallback;
+    if (typeof payload.detail === 'string') return payload.detail;
+    if (typeof payload.message === 'string') return payload.message;
+    return fallback;
+}
+
+function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value || '';
+    return div.innerHTML;
+}
+
+function visibilityLabel(template) {
+    if (template.is_base) return 'default';
+    return template.visibility === 'public' ? 'public' : 'private';
+}
+
+function filterTemplates() {
+    if (activeFilter === 'defaults') return templates.filter(t => t.is_base);
+    if (activeFilter === 'mine') return templates.filter(t => t.is_mine);
+    if (activeFilter === 'public') return templates.filter(t => t.visibility === 'public' && !t.is_base);
+    return templates;
+}
+
+function pickTemplate(id) {
+    const t = templates.find(x => x.id === id);
+    if (!t) return;
+
+    selectedTemplateId = id;
+    selectedPromptTextEl.value = t.body || '';
+
+    selectedMetaEl.innerHTML = [
+        '<span class="pill">' + (t.prompt_type || '-') + '</span>',
+        '<span class="pill">' + visibilityLabel(t) + '</span>',
+        '<span class="pill">' + escapeHtml(t.name || 'Без названия') + '</span>'
+    ].join('');
+
+    renderList();
+}
+
+function renderList() {
+    const list = filterTemplates();
+    if (!list.length) {
+        templatesListEl.innerHTML = '<div class="empty">Промптов в этом разделе пока нет.</div>';
+        return;
+    }
+
+    templatesListEl.innerHTML = list.map(t => {
+        const activeClass = t.id === selectedTemplateId ? ' active' : '';
+        const label = visibilityLabel(t);
+        const lineCount = (t.body || '').split(/\r?\n/).length;
+        return `
+            <div class="template-item${activeClass}" onclick="selectTemplate(${t.id})">
+                <h4>${escapeHtml(t.name || 'Без названия')}</h4>
+                <div class="template-meta">
+                    <span class="pill">${escapeHtml(t.prompt_type || '-')}</span>
+                    <span class="pill">${escapeHtml(label)}</span>
+                    <span class="pill">строк: ${lineCount}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+window.selectTemplate = pickTemplate;
+
+async function loadTemplates() {
+    try {
+        const response = await fetch('/api/prompt-library/templates');
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(extractError(data, 'Не удалось загрузить шаблоны'));
+        }
+        templates = data.templates || [];
+
+        if (!templates.some(t => t.is_base)) {
+            await syncDefaults(false);
+            return;
         }
 
-        async function loadLibrary() {
-            const uid = userTelegramIdEl.value;
-            if (!uid) { showAlert('Введите Telegram ID', 'error'); return; }
-            loading.style.display = 'block';
-            libraryContent.style.display = 'none';
-            emptyState.style.display = 'none';
-            try {
-                const r = await fetch('/api/prompts-library?user_telegram_id=' + encodeURIComponent(uid));
-                const data = await r.json();
-                if (!r.ok) throw new Error(data.detail || 'Ошибка загрузки');
-                libraryData = data.channels || [];
-                loading.style.display = 'none';
-                if (libraryData.length === 0) {
-                    emptyState.style.display = 'block';
-                    return;
-                }
-                renderLibrary();
-                libraryContent.style.display = 'block';
-            } catch (e) {
-                loading.style.display = 'none';
-                showAlert('Ошибка: ' + e.message, 'error');
+        const filtered = filterTemplates();
+        const hasSelectedInFiltered = filtered.some(t => t.id === selectedTemplateId);
+        if (!selectedTemplateId || !hasSelectedInFiltered) {
+            const next = filtered[0] || templates[0] || null;
+            if (next) {
+                selectedTemplateId = next.id;
+                pickTemplate(selectedTemplateId);
+            } else {
+                renderList();
+                selectedMetaEl.innerHTML = '';
+                selectedPromptTextEl.value = '';
             }
+            return;
         }
 
-        function renderLibrary() {
-            const uid = userTelegramIdEl.value;
-            let html = '';
-            libraryData.forEach(ch => {
-                html += '<div class="channel-card">';
-                html += '<h3><span class="material-icons">tag</span>' + escapeHtml(ch.name) + ' <a class="link-detail" href="/prompts?channel_id=' + ch.id + '&user_telegram_id=' + uid + '">Подробное редактирование →</a></h3>';
-                ['digest', 'consolidated'].forEach(pt => {
-                    const typeLabel = pt === 'digest' ? 'Промпты для дайджестов' : 'Промпты для сводного документа';
-                    const prompts = (ch.prompts && ch.prompts[pt]) ? ch.prompts[pt] : [];
-                    html += '<div class="prompt-type-section"><h4>' + typeLabel + '</h4>';
-                    prompts.forEach(p => {
-                        html += '<div class="prompt-row">';
-                        html += '<div><span class="name">' + escapeHtml(p.name) + '</span>' + (p.is_default ? ' <span class="badge">по умолчанию</span>' : '') + '<div class="preview">' + escapeHtml(p.text_preview || '') + '</div></div>';
-                        html += '<div class="actions"><button class="btn-sm primary" onclick="openEdit(' + ch.id + ',' + p.id + ',\'' + pt + '\')">Изменить</button><button class="btn-sm danger" onclick="deletePrompt(' + ch.id + ',' + p.id + ')">Удалить</button></div></div>';
-                    });
-                    html += '<button type="button" class="btn-sm primary btn-add" onclick="openAdd(' + ch.id + ',\'' + pt + '\')"><span class="material-icons" style="font-size: 16px;">add</span> Добавить промпт</button>';
-                    html += '</div>';
-                });
-                html += '</div>';
-            });
-            libraryContent.innerHTML = html;
+        renderList();
+        const current = templates.find(t => t.id === selectedTemplateId);
+        if (current) {
+            selectedPromptTextEl.value = current.body || '';
+        }
+    } catch (error) {
+        showAlert(error.message, 'err');
+    }
+}
+
+async function syncDefaults(withAlert = true) {
+    try {
+        const response = await fetch('/api/prompt-library/sync', { method: 'POST' });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(extractError(data, 'Не удалось синхронизировать системные промпты'));
+        }
+        if (withAlert) {
+            showAlert('Системные промпты синхронизированы: ' + (data.synced || 0), 'ok');
+        }
+        await loadTemplates();
+    } catch (error) {
+        if (withAlert) showAlert(error.message, 'err');
+    }
+}
+
+function setFilter(nextFilter) {
+    activeFilter = nextFilter;
+    filterButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === nextFilter);
+    });
+    renderList();
+}
+
+async function createTemplate(event) {
+    event.preventDefault();
+    const name = (document.getElementById('promptName').value || '').trim();
+    const promptType = document.getElementById('promptType').value;
+    const body = (document.getElementById('promptBody').value || '').trim();
+    const share = document.getElementById('shareToLibrary').value === '1';
+
+    if (!name || !body) {
+        showAlert('Заполните название и полный текст промпта', 'err');
+        return;
+    }
+
+    createPromptBtn.disabled = true;
+    createPromptBtn.textContent = 'Сохраняем...';
+    try {
+        const response = await fetch('/api/prompt-library/templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: name,
+                prompt_type: promptType,
+                body: body,
+                share_to_library: share,
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(extractError(data, 'Не удалось создать шаблон'));
         }
 
-        function escapeHtml(s) {
-            const d = document.createElement('div');
-            d.textContent = s;
-            return d.innerHTML;
-        }
+        showAlert('Промпт сохранен', 'ok');
+        newPromptForm.reset();
+        document.getElementById('shareToLibrary').value = '0';
+        activeFilter = 'mine';
+        setFilter('mine');
+        await loadTemplates();
+    } catch (error) {
+        showAlert(error.message, 'err');
+    } finally {
+        createPromptBtn.disabled = false;
+        createPromptBtn.textContent = 'Сохранить промпт';
+    }
+}
 
-        async function openEdit(channelId, promptId, promptType) {
-            const uid = userTelegramIdEl.value;
-            try {
-                const r = await fetch('/api/channels/' + channelId + '/prompts?user_telegram_id=' + uid);
-                const data = await r.json();
-                if (!r.ok) throw new Error(data.detail || 'Ошибка');
-                const list = promptType === 'digest' ? (data.prompts && data.prompts.digest) : (data.prompts && data.prompts.consolidated);
-                const p = (list || []).find(x => x.id === promptId);
-                if (!p) { showAlert('Промпт не найден', 'error'); return; }
-                document.getElementById('editModalTitle').textContent = 'Редактировать промпт';
-                document.getElementById('editChannelId').value = channelId;
-                document.getElementById('editPromptId').value = promptId;
-                document.getElementById('editPromptType').value = promptType;
-                document.getElementById('editPromptName').value = p.name || '';
-                document.getElementById('editPromptText').value = p.text || '';
-                document.getElementById('editTypeGroup').style.display = 'none';
-                document.getElementById('editModal').classList.add('show');
-            } catch (e) {
-                showAlert('Ошибка: ' + e.message, 'error');
-            }
-        }
+function copySelectedToForm() {
+    const current = templates.find(t => t.id === selectedTemplateId);
+    if (!current) {
+        showAlert('Сначала выберите промпт из списка', 'err');
+        return;
+    }
+    document.getElementById('promptName').value = (current.name || '') + ' (копия)';
+    document.getElementById('promptType').value = current.prompt_type || 'digest';
+    document.getElementById('promptBody').value = current.body || '';
+    document.getElementById('shareToLibrary').value = '0';
+    showAlert('Текст выбранного промпта скопирован в форму', 'ok');
+}
 
-        function openAdd(channelId, promptType) {
-            document.getElementById('editModalTitle').textContent = 'Новый промпт';
-            document.getElementById('editChannelId').value = channelId;
-            document.getElementById('editPromptId').value = '';
-            document.getElementById('editPromptType').value = promptType;
-            document.getElementById('editPromptName').value = '';
-            document.getElementById('editPromptText').value = '';
-            document.getElementById('editTypeGroup').style.display = 'block';
-            document.getElementById('editTypeSelect').value = promptType;
-            document.getElementById('editModal').classList.add('show');
-        }
+window.addEventListener('DOMContentLoaded', () => {
+    filterButtons.forEach(btn => {
+        btn.addEventListener('click', () => setFilter(btn.dataset.filter));
+    });
+    syncBtn.addEventListener('click', () => syncDefaults(true));
+    reloadBtn.addEventListener('click', loadTemplates);
+    copySelectedBtn.addEventListener('click', copySelectedToForm);
+    newPromptForm.addEventListener('submit', createTemplate);
 
-        function closeEditModal() {
-            document.getElementById('editModal').classList.remove('show');
-        }
-
-        async function saveEditModal() {
-            const channelId = document.getElementById('editChannelId').value;
-            const promptId = document.getElementById('editPromptId').value;
-            const promptType = document.getElementById('editPromptId').value
-                ? document.getElementById('editPromptType').value
-                : document.getElementById('editTypeSelect').value;
-            const name = document.getElementById('editPromptName').value.trim();
-            const text = document.getElementById('editPromptText').value.trim();
-            const uid = userTelegramIdEl.value;
-            if (!name || !text) { showAlert('Заполните название и текст', 'error'); return; }
-            const formData = new FormData();
-            formData.append('user_telegram_id', uid);
-            formData.append('prompt_type', promptType);
-            formData.append('name', name);
-            formData.append('text', text);
-            formData.append('is_default', 'true');
-            try {
-                if (promptId) {
-                    const r = await fetch('/api/channels/' + channelId + '/prompts/' + promptId, { method: 'PUT', body: formData });
-                    const data = await r.json();
-                    if (!r.ok) throw new Error(data.detail || 'Ошибка сохранения');
-                    showAlert('Промпт обновлён. Воркер будет использовать его при следующем запуске.', 'success');
-                } else {
-                    const r = await fetch('/api/channels/' + channelId + '/prompts', { method: 'POST', body: formData });
-                    const data = await r.json();
-                    if (!r.ok) throw new Error(data.detail || 'Ошибка создания');
-                    showAlert('Промпт создан и сохранён в библиотеке.', 'success');
-                }
-                closeEditModal();
-                loadLibrary();
-            } catch (e) {
-                showAlert('Ошибка: ' + e.message, 'error');
-            }
-        }
-
-        async function deletePrompt(channelId, promptId) {
-            if (!confirm('Удалить этот промпт?')) return;
-            const uid = userTelegramIdEl.value;
-            try {
-                const r = await fetch('/api/channels/' + channelId + '/prompts/' + promptId + '?user_telegram_id=' + uid, { method: 'DELETE' });
-                if (!r.ok) { const d = await r.json(); throw new Error(d.detail || 'Ошибка'); }
-                showAlert('Промпт удалён', 'success');
-                loadLibrary();
-            } catch (e) {
-                showAlert('Ошибка: ' + e.message, 'error');
-            }
-        }
-
-        document.getElementById('btnLoad').addEventListener('click', loadLibrary);
-        document.getElementById('editModalSave').addEventListener('click', saveEditModal);
-        document.getElementById('editModal').addEventListener('click', e => { if (e.target.id === 'editModal') closeEditModal(); });
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const uidParam = urlParams.get('user_telegram_id');
-        if (uidParam) {
-            userTelegramIdEl.value = uidParam;
-            loadLibrary();
-        } else if (userTelegramIdEl.value) {
-            loadLibrary();
-        }
-    </script>
+    setFilter('defaults');
+    loadTemplates();
+});
+</script>
 </body>
 </html>

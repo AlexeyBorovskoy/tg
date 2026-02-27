@@ -1,309 +1,354 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+    <link rel="stylesheet" href="/static/platform_shell.css">
+    <script src="/static/platform_shell.js" defer></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TG Digest — Персональная настройка</title>
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; color: #212121; }
-        .header { background: #ffffff; border-bottom: 1px solid #e0e0e0; padding: 0 24px; height: 56px; display: flex; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .header-title { font-size: 18px; font-weight: 400; color: #212121; display: flex; align-items: center; gap: 12px; }
-        .header-actions { margin-left: auto; display: flex; gap: 8px; }
-        .btn-header { background: #1976d2; border: none; color: #ffffff; padding: 8px 16px; border-radius: 4px; text-decoration: none; font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
-        .btn-header:hover { background: #1565c0; }
-        .tabs { background: #fff; border-bottom: 1px solid #e0e0e0; display: flex; padding: 0 24px; }
-        .tab { padding: 14px 20px; font-size: 13px; font-weight: 500; color: #78909c; text-decoration: none; border-bottom: 2px solid transparent; text-transform: uppercase; letter-spacing: 0.5px; }
-        .tab:hover { color: #37474f; }
-        .tab.active { color: #1976d2; border-bottom-color: #1976d2; }
-        .container { max-width: 1100px; margin: 24px auto; padding: 0 24px; }
-        .page-header { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 24px; margin-bottom: 20px; }
-        .page-header h1 { font-size: 24px; font-weight: 400; margin-bottom: 8px; }
-        .page-header p { color: #616161; font-size: 14px; line-height: 1.5; }
-        .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
-        @media (min-width: 980px) { .grid { grid-template-columns: 1.05fr 1fr; } }
-        .card { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 20px; }
-        .card h2 { font-size: 18px; font-weight: 500; margin-bottom: 14px; color: #212121; }
-        .form-group { margin-bottom: 14px; }
-        label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 500; color: #424242; }
-        input[type="text"], input[type="number"] { width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 4px; font-size: 14px; }
-        input:focus { outline: none; border-color: #1976d2; }
-        .hint { margin-top: 4px; color: #757575; font-size: 12px; line-height: 1.4; }
-        .btn { background: #1976d2; color: #fff; border: none; border-radius: 4px; padding: 11px 18px; font-size: 14px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
-        .btn:hover { background: #1565c0; }
-        .btn:disabled { background: #e0e0e0; color: #9e9e9e; cursor: not-allowed; }
-        .btn-outline { background: #fff; color: #1976d2; border: 1px solid #1976d2; }
-        .btn-outline:hover { background: #f5f9ff; }
-        .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
-        .alert { display: none; padding: 12px 14px; border-radius: 4px; margin-bottom: 14px; font-size: 14px; }
-        .alert.show { display: block; }
-        .alert.success { background: #e8f5e9; color: #2e7d32; border-left: 4px solid #4caf50; }
-        .alert.error { background: #ffebee; color: #c62828; border-left: 4px solid #f44336; }
-        .meta { background: #f5f5f5; border: 1px solid #e0e0e0; padding: 12px; border-radius: 4px; font-size: 13px; color: #424242; margin-bottom: 12px; }
-        .meta div { margin-bottom: 4px; }
-        .meta div:last-child { margin-bottom: 0; }
-        .step { margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid #eeeeee; }
-        .step:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
-        .step-title { font-size: 15px; font-weight: 600; color: #212121; margin-bottom: 8px; }
-        .step p { font-size: 14px; color: #424242; line-height: 1.55; margin-bottom: 8px; }
-        .code { background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 4px; padding: 10px 12px; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; color: #212121; }
-        .list { margin-left: 18px; }
-        .list li { margin-bottom: 6px; font-size: 14px; color: #424242; }
-        .warn { background: #fff3e0; border-left: 4px solid #ff9800; border-radius: 4px; padding: 10px 12px; font-size: 13px; color: #e65100; }
-    </style>
+    <title>Настройка Telegram — TG Digest</title>
+    <link rel="stylesheet" href="/static/onboarding.css">
 </head>
 <body>
+<div class="wrap">
     <header class="header">
-        <div class="header-title">
-            <span class="material-icons">settings</span>
-            TG Digest System
-        </div>
-        <div class="header-actions">
-            <a href="/channels" class="btn-header">Мои каналы</a>
-        </div>
+        <div class="title">TG DIGEST / Личный профиль</div>
+        <a class="tab active" href="/setup">Настройка Telegram</a>
+        <a class="tab" href="/">Добавление канала</a>
+        <a class="tab" href="/channels">Мои каналы</a>
+        <a class="tab" href="/prompts">Библиотека промптов</a>
+        <a class="tab" href="/instructions">Инструкции</a>
+        <a class="tab" href="/logout">Выйти</a>
     </header>
-    <div class="tabs">
-        <a href="/setup" class="tab active">НАСТРОЙКА</a>
-        <a href="/" class="tab">ДОБАВЛЕНИЕ КАНАЛА</a>
-        <a href="/channels" class="tab">МОИ КАНАЛЫ</a>
-        <a href="/prompts" class="tab">ПРОМПТЫ</a>
-        <a href="/instructions" class="tab">ИНСТРУКЦИИ</a>
-    </div>
 
-    <main class="container">
-        <section class="page-header">
-            <h1>Персональная настройка Telethon</h1>
-            <p>После входа по логину/паролю сначала настраивается ваш Telegram runtime: `API_ID/API_HASH`, `session` и бот для рассылки. Эти данные сохраняются в БД и в ваш персональный secret-файл.</p>
-        </section>
+    <section class="hero">
+        <h1>Персональная настройка Telegram (Telethon)</h1>
+        <p>Последовательность простая: 1) сохранить API-данные, 2) получить код в Telegram, 3) подтвердить код и 2FA, 4) сохранить бота/чаты.</p>
+    </section>
 
-        <div class="grid">
-            <section class="card">
-                <h2>1. Данные пользователя</h2>
-                <div id="alert" class="alert"></div>
-                <div class="meta">
-                    <div><strong>User ID:</strong> <span id="metaUserId">{{ user_id }}</span></div>
-                    <div><strong>Telegram ID:</strong> <span id="metaTelegramId">{{ user_telegram_id }}</span></div>
-                    <div><strong>Secret file:</strong> <span id="metaSecretFile">не создан</span></div>
+    <section class="grid">
+        <article class="card">
+            <div class="meta">
+                <div class="item">User ID<b id="metaUserId">{{ user_id or '-' }}</b></div>
+                <div class="item">Telegram ID<b id="metaTelegramId">{{ user_telegram_id or 'не привязан' }}</b></div>
+                <div class="item">Secret file<b id="metaSecretFile">не создан</b></div>
+            </div>
+            <div id="topAlert" class="alert" style="display:none;"></div>
+        </article>
+    </section>
+
+    <section class="grid two">
+        <article class="card">
+            <h2>Шаг 1. API данные + бот</h2>
+
+            <form id="runtimeForm">
+                <label for="tgApiId">API ID</label>
+                <input id="tgApiId" type="number" placeholder="12345678" required>
+                <p class="hint">Берется на <code>my.telegram.org</code> -> <code>API development tools</code>.</p>
+
+                <label for="tgApiHash">API Hash</label>
+                <input id="tgApiHash" type="text" placeholder="0123456789abcdef0123456789abcdef" required>
+
+                <label for="tgPhone">Телефон Telegram</label>
+                <input id="tgPhone" type="text" placeholder="+79991234567">
+
+                {% if is_admin %}
+                <label for="tgSessionFile">Файл сессии (только администратор)</label>
+                <input id="tgSessionFile" type="text" placeholder="/app/data/user-sessions/user_1.session">
+                <p class="hint">Путь session-файла доступен для управления только админу (login: <code>{{ admin_login }}</code>).</p>
+                {% else %}
+                <input id="tgSessionFile" type="hidden" value="">
+                <p class="hint">Путь session-файла управляется системой и скрыт для обычного пользователя.</p>
+                {% endif %}
+
+                <label for="botToken">Токен бота (опционально)</label>
+                <input id="botToken" type="text" placeholder="123456789:AA...">
+                <p class="hint">На этом этапе мы проверяем формат и сохраняем токен как дефолтный для пользователя.</p>
+
+                <label for="botName">Название бота</label>
+                <input id="botName" type="text" value="Default Bot">
+
+                <div class="btns">
+                    <button class="btn main" type="submit" id="saveBtn">Сохранить настройки</button>
+                    <button class="btn soft" type="button" id="reloadBtn">Обновить из БД</button>
                 </div>
+            </form>
+        </article>
 
-                <form id="runtimeForm">
-                    <div class="form-group">
-                        <label for="tgApiId">TG API ID</label>
-                        <input type="number" id="tgApiId" required placeholder="Например: 12345678" />
-                        <div class="hint">Берется в <code>https://my.telegram.org</code> -> API development tools.</div>
-                    </div>
-                    <div class="form-group">
-                        <label for="tgApiHash">TG API HASH</label>
-                        <input type="text" id="tgApiHash" required placeholder="Например: 0123456789abcdef0123456789abcdef" />
-                    </div>
-                    <div class="form-group">
-                        <label for="tgPhone">Телефон Telegram</label>
-                        <input type="text" id="tgPhone" placeholder="Например: +79991234567" />
-                        <div class="hint">Нужен для интерактивной авторизации Telethon (ввод кода из Telegram).</div>
-                    </div>
-                    <div class="form-group">
-                        <label for="tgSessionFile">Путь session-файла</label>
-                        <input type="text" id="tgSessionFile" placeholder="/app/data/user-sessions/user_1.session" />
-                        <div class="hint">Если оставить пустым, будет путь вида <code>/app/data/user-sessions/user_&lt;id&gt;.session</code>.</div>
-                    </div>
-                    <div class="form-group">
-                        <label for="botToken">Токен бота для рассылки</label>
-                        <input type="text" id="botToken" placeholder="123456789:AA..." />
-                        <div class="hint">Бот должен принадлежать тому же владельцу Telegram, что и аккаунт Telethon.</div>
-                    </div>
-                    <div class="form-group">
-                        <label for="botName">Название бота</label>
-                        <input type="text" id="botName" value="Default Bot" />
-                    </div>
-                    <div class="actions">
-                        <button class="btn" id="saveBtn" type="submit">
-                            <span class="material-icons" style="font-size: 18px;">save</span>
-                            Сохранить в БД
-                        </button>
-                        <button class="btn btn-outline" id="reloadBtn" type="button">
-                            <span class="material-icons" style="font-size: 18px;">refresh</span>
-                            Обновить
-                        </button>
-                    </div>
-                </form>
-            </section>
+        <article class="card">
+            <h3>Где взять API ID и API Hash</h3>
+            <ol class="steps">
+                <li>Откройте <code>https://my.telegram.org</code>.</li>
+                <li>Войдите по вашему номеру и одноразовому коду Telegram.</li>
+                <li>Откройте <code>API development tools</code>.</li>
+                <li>Скопируйте значения в форму слева.</li>
+            </ol>
+            <div class="code">Пример:
+phone    = +79991234567
+api_id   = 12345678
+api_hash = 0123456789abcdef0123456789abcdef</div>
+            <div class="alert warn" style="margin-top:10px;">Если API данные неверные, код подтверждения не отправится.</div>
+        </article>
+    </section>
 
-            <section class="card">
-                <h2>2. Авторизация Telethon (код из Telegram)</h2>
+    <section class="grid two">
+        <article class="card">
+            <h2>Шаг 2. Отправка кода из Telegram</h2>
+            <p class="hint">После сохранения данных нажмите кнопку ниже. Код придет в приложение Telegram на указанный номер.</p>
+            <div class="btns">
+                <button class="btn main" id="sendCodeBtn" type="button">Отправить код в Telegram</button>
+            </div>
+            <div class="hint" id="sendCodeStatus"></div>
+        </article>
 
-                <div class="step">
-                    <div class="step-title">Шаг A: получить API_ID/API_HASH</div>
-                    <p>Откройте <code>https://my.telegram.org</code>, войдите по номеру, создайте приложение и скопируйте поля `api_id` и `api_hash`.</p>
-                    <p><strong>Пример:</strong> `api_id=12345678`, `api_hash=0123456789abcdef0123456789abcdef`.</p>
-                </div>
+        <article class="card">
+            <h2>Шаг 3. Подтверждение кода и 2FA</h2>
+            <label for="tgCode">Код из Telegram</label>
+            <input id="tgCode" type="text" placeholder="например: 12345">
 
-                <div class="step">
-                    <div class="step-title">Шаг B: сохранить форму слева</div>
-                    <p>Нажмите кнопку «Сохранить в БД». Сервис сохранит настройки и сгенерирует персональный secret-файл пользователя.</p>
-                </div>
+            <label for="tg2fa">Пароль 2FA (если включен)</label>
+            <input id="tg2fa" type="password" placeholder="если не включен — оставить пустым">
 
-                <div class="step">
-                    <div class="step-title">Шаг C: пройти интерактивный вход Telethon</div>
-                    <p>В терминале выполните команду:</p>
-                    <div class="code" id="authCommand"></div>
-                    <div class="actions">
-                        <button class="btn btn-outline" type="button" id="copyCmdBtn">
-                            <span class="material-icons" style="font-size: 18px;">content_copy</span>
-                            Скопировать команду
-                        </button>
-                    </div>
-                    <ul class="list" style="margin-top: 10px;">
-                        <li>Скрипт спросит `Please enter your phone...` -> введите ваш номер `+7...`</li>
-                        <li>Telegram пришлет код подтверждения -> введите код в терминал</li>
-                        <li>Если включена 2FA, введите пароль от Telegram</li>
-                        <li>После успеха session-файл будет создан по пути из поля `TG_SESSION_FILE`</li>
-                    </ul>
-                </div>
+            <div class="btns">
+                <button class="btn main" id="verifyCodeBtn" type="button">Подтвердить вход Telethon</button>
+            </div>
 
-                <div class="warn">
-                    Если session не создан, Telethon не сможет читать ваши чаты. Сначала завершите шаг C, затем переходите к добавлению каналов.
-                </div>
-            </section>
-        </div>
-    </main>
+            <div class="alert ok" style="margin-top:12px;" id="authResultHint">
+                После успешного шага будет создан session-файл и обновлен secret-файл пользователя.
+            </div>
+        </article>
+    </section>
+</div>
 
-    <script>
-        const alertEl = document.getElementById('alert');
-        const formEl = document.getElementById('runtimeForm');
-        const saveBtn = document.getElementById('saveBtn');
-        const reloadBtn = document.getElementById('reloadBtn');
-        const copyCmdBtn = document.getElementById('copyCmdBtn');
-        const authCommandEl = document.getElementById('authCommand');
+<script>
+const topAlert = document.getElementById('topAlert');
+const metaUserId = document.getElementById('metaUserId');
+const metaTelegramId = document.getElementById('metaTelegramId');
+const metaSecretFile = document.getElementById('metaSecretFile');
 
-        const metaUserIdEl = document.getElementById('metaUserId');
-        const metaTelegramIdEl = document.getElementById('metaTelegramId');
-        const metaSecretFileEl = document.getElementById('metaSecretFile');
+const tgApiId = document.getElementById('tgApiId');
+const tgApiHash = document.getElementById('tgApiHash');
+const tgPhone = document.getElementById('tgPhone');
+const tgSessionFile = document.getElementById('tgSessionFile');
+const botToken = document.getElementById('botToken');
+const botName = document.getElementById('botName');
 
-        const tgApiIdEl = document.getElementById('tgApiId');
-        const tgApiHashEl = document.getElementById('tgApiHash');
-        const tgPhoneEl = document.getElementById('tgPhone');
-        const tgSessionFileEl = document.getElementById('tgSessionFile');
-        const botTokenEl = document.getElementById('botToken');
-        const botNameEl = document.getElementById('botName');
+const saveBtn = document.getElementById('saveBtn');
+const reloadBtn = document.getElementById('reloadBtn');
+const sendCodeBtn = document.getElementById('sendCodeBtn');
+const verifyCodeBtn = document.getElementById('verifyCodeBtn');
+const sendCodeStatus = document.getElementById('sendCodeStatus');
+const tgCode = document.getElementById('tgCode');
+const tg2fa = document.getElementById('tg2fa');
+const authResultHint = document.getElementById('authResultHint');
+const isAdmin = {{ 'true' if is_admin else 'false' }};
 
-        let runtimeData = null;
+function setSecretFileMeta(path, generated) {
+    if (isAdmin) {
+        metaSecretFile.textContent = path || (generated ? 'сформирован' : 'не создан');
+        return;
+    }
+    metaSecretFile.textContent = generated ? 'сформирован (путь скрыт)' : 'не создан';
+}
 
-        function showAlert(msg, type) {
-            alertEl.className = 'alert show ' + type;
-            alertEl.textContent = msg;
-            setTimeout(() => alertEl.classList.remove('show'), 5000);
+function showAlert(message, kind = 'ok') {
+    topAlert.className = 'alert ' + kind;
+    topAlert.textContent = message;
+    topAlert.style.display = 'block';
+}
+
+function hideAlert() {
+    topAlert.style.display = 'none';
+    topAlert.textContent = '';
+}
+
+function extractError(payload, fallback) {
+    if (!payload) return fallback;
+    if (typeof payload.detail === 'string') return payload.detail;
+    if (typeof payload.message === 'string') return payload.message;
+    if (typeof payload.detail === 'object' && payload.detail && payload.detail.message) return payload.detail.message;
+    return fallback;
+}
+
+async function loadRuntimeConfig() {
+    hideAlert();
+    try {
+        const response = await fetch('/api/user/runtime-config');
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(extractError(data, 'Не удалось загрузить настройки'));
         }
 
-        function buildAuthCommand() {
-            const apiId = (tgApiIdEl.value || '').trim() || '<TG_API_ID>';
-            const apiHash = (tgApiHashEl.value || '').trim() || '<TG_API_HASH>';
-            const sessionFile = (tgSessionFileEl.value || '').trim() || `/app/data/user-sessions/user_${metaUserIdEl.textContent || 'X'}.session`;
-            const cmd = [
-                'cd tg_digest_system/scripts',
-                `TG_API_ID=${apiId} TG_API_HASH=${apiHash} TG_SESSION_FILE=${sessionFile} python3 auth_telethon.py`
-            ].join('\n');
-            authCommandEl.textContent = cmd;
-        }
+        if (data.user_id) metaUserId.textContent = data.user_id;
+        if (data.telegram_id) metaTelegramId.textContent = data.telegram_id;
 
-        function fillForm(data) {
-            runtimeData = data || {};
-            if (runtimeData.user_id) {
-                metaUserIdEl.textContent = runtimeData.user_id;
-            }
-            if (runtimeData.telegram_id) {
-                metaTelegramIdEl.textContent = runtimeData.telegram_id;
-            }
-            if (runtimeData.secret_file && runtimeData.secret_file.path) {
-                metaSecretFileEl.textContent = runtimeData.secret_file.path;
-            }
+        if (data.telegram) {
+            if (data.telegram.tg_api_id) tgApiId.value = data.telegram.tg_api_id;
+            if (data.telegram.tg_phone) tgPhone.value = data.telegram.tg_phone;
+            if (data.telegram.tg_session_file) tgSessionFile.value = data.telegram.tg_session_file;
 
-            if (runtimeData.telegram) {
-                if (runtimeData.telegram.tg_api_id) tgApiIdEl.value = runtimeData.telegram.tg_api_id;
-                if (runtimeData.telegram.tg_phone) tgPhoneEl.value = runtimeData.telegram.tg_phone;
-                if (runtimeData.telegram.tg_session_file) tgSessionFileEl.value = runtimeData.telegram.tg_session_file;
-            }
-            if (runtimeData.bot && runtimeData.bot.bot_name) {
-                botNameEl.value = runtimeData.bot.bot_name;
-            }
-
-            if (!tgSessionFileEl.value && metaUserIdEl.textContent) {
-                tgSessionFileEl.value = `/app/data/user-sessions/user_${metaUserIdEl.textContent}.session`;
-            }
-            buildAuthCommand();
-        }
-
-        async function loadRuntimeConfig() {
-            try {
-                const r = await fetch('/api/user/runtime-config');
-                const data = await r.json();
-                if (!r.ok) throw new Error(data.detail || 'Ошибка загрузки runtime-config');
-                fillForm(data);
-            } catch (e) {
-                showAlert('Ошибка загрузки: ' + e.message, 'error');
+            if (data.telegram.session_file_exists) {
+                authResultHint.className = 'alert ok';
+                authResultHint.textContent = 'Telethon уже авторизован: session-файл найден.';
             }
         }
 
-        async function saveRuntimeConfig(e) {
-            e.preventDefault();
-            const tgApiId = parseInt((tgApiIdEl.value || '').trim(), 10);
-            const tgApiHash = (tgApiHashEl.value || '').trim();
-            const tgPhone = (tgPhoneEl.value || '').trim();
-            const tgSessionFile = (tgSessionFileEl.value || '').trim();
-            const botToken = (botTokenEl.value || '').trim();
-            const botName = (botNameEl.value || '').trim() || 'Default Bot';
+        if (data.bot && data.bot.bot_name) {
+            botName.value = data.bot.bot_name;
+        }
 
-            if (!tgApiId || !tgApiHash) {
-                showAlert('Заполните TG API ID и TG API HASH', 'error');
+        if (data.secret_file) {
+            setSecretFileMeta(data.secret_file.path, data.secret_file.generated);
+        }
+
+        if (!tgSessionFile.value && data.user_id) {
+            tgSessionFile.value = '/app/data/user-sessions/user_' + data.user_id + '.session';
+        }
+    } catch (error) {
+        showAlert(error.message, 'err');
+    }
+}
+
+async function saveRuntimeConfig(event) {
+    event.preventDefault();
+    hideAlert();
+
+    const apiId = parseInt((tgApiId.value || '').trim(), 10);
+    const apiHash = (tgApiHash.value || '').trim();
+    if (!apiId || !apiHash) {
+        showAlert('Заполните API ID и API Hash', 'err');
+        return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Сохраняем...';
+    try {
+        const payload = {
+            tg_api_id: apiId,
+            tg_api_hash: apiHash,
+            tg_phone: (tgPhone.value || '').trim() || null,
+            tg_session_file: (tgSessionFile.value || '').trim() || null,
+            bot_token: (botToken.value || '').trim() || null,
+            bot_name: (botName.value || '').trim() || 'Default Bot',
+            make_bot_default: true,
+        };
+
+        const response = await fetch('/api/user/runtime-config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(extractError(data, 'Ошибка сохранения runtime-настроек'));
+        }
+
+        if (data.secret_file_path || data.secret_file_generated) {
+            setSecretFileMeta(data.secret_file_path, data.secret_file_generated);
+        }
+        showAlert('Настройки сохранены. Теперь можно отправить код подтверждения.', 'ok');
+        await loadRuntimeConfig();
+    } catch (error) {
+        showAlert(error.message, 'err');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Сохранить настройки';
+    }
+}
+
+async function sendTelethonCode() {
+    hideAlert();
+    sendCodeStatus.textContent = '';
+    sendCodeBtn.disabled = true;
+    sendCodeBtn.textContent = 'Отправляем...';
+
+    try {
+        const response = await fetch('/api/user/telethon/send-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tg_phone: (tgPhone.value || '').trim() || null }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(extractError(data, 'Не удалось отправить код'));
+        }
+
+        if (data.already_authorized) {
+            authResultHint.className = 'alert ok';
+            authResultHint.textContent = 'Telethon уже был авторизован. Можно переходить к добавлению каналов.';
+            if (data.telegram_id) metaTelegramId.textContent = String(data.telegram_id);
+            if (data.secret_file_path || data.secret_file_generated) {
+                setSecretFileMeta(data.secret_file_path, data.secret_file_generated);
+            }
+            showAlert('Авторизация уже активна для этого пользователя.', 'ok');
+        } else {
+            sendCodeStatus.textContent = 'Код отправлен. Срок действия: ' + (data.ttl_seconds || 600) + ' сек.';
+            showAlert('Код отправлен в Telegram. Введите его в следующем блоке.', 'ok');
+        }
+    } catch (error) {
+        showAlert(error.message, 'err');
+    } finally {
+        sendCodeBtn.disabled = false;
+        sendCodeBtn.textContent = 'Отправить код в Telegram';
+    }
+}
+
+async function verifyTelethonCode() {
+    hideAlert();
+    const code = (tgCode.value || '').trim();
+    if (!code) {
+        showAlert('Введите код подтверждения', 'err');
+        return;
+    }
+
+    verifyCodeBtn.disabled = true;
+    verifyCodeBtn.textContent = 'Проверяем...';
+
+    try {
+        const response = await fetch('/api/user/telethon/verify-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                code: code,
+                password: (tg2fa.value || '').trim() || null,
+            }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            if (data && data.needs_password) {
+                showAlert(data.message || 'Нужен пароль 2FA', 'warn');
                 return;
             }
-
-            saveBtn.disabled = true;
-            try {
-                const payload = {
-                    tg_api_id: tgApiId,
-                    tg_api_hash: tgApiHash,
-                    tg_phone: tgPhone || null,
-                    tg_session_file: tgSessionFile || null,
-                    bot_token: botToken || null,
-                    bot_name: botName,
-                    make_bot_default: true
-                };
-                const r = await fetch('/api/user/runtime-config', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await r.json();
-                if (!r.ok) throw new Error(data.detail || 'Ошибка сохранения');
-
-                showAlert('Настройки сохранены в БД', 'success');
-                if (data.secret_file_path) metaSecretFileEl.textContent = data.secret_file_path;
-                await loadRuntimeConfig();
-            } catch (e2) {
-                showAlert('Ошибка сохранения: ' + e2.message, 'error');
-            } finally {
-                saveBtn.disabled = false;
-            }
+            throw new Error(extractError(data, 'Ошибка подтверждения кода'));
         }
 
-        async function copyCommand() {
-            try {
-                await navigator.clipboard.writeText(authCommandEl.textContent);
-                showAlert('Команда скопирована', 'success');
-            } catch (_err) {
-                showAlert('Не удалось скопировать команду', 'error');
-            }
+        if (data.telegram_id) metaTelegramId.textContent = String(data.telegram_id);
+        if (data.secret_file_path || data.secret_file_generated) {
+            setSecretFileMeta(data.secret_file_path, data.secret_file_generated);
         }
 
-        formEl.addEventListener('submit', saveRuntimeConfig);
-        reloadBtn.addEventListener('click', loadRuntimeConfig);
-        copyCmdBtn.addEventListener('click', copyCommand);
-        tgApiIdEl.addEventListener('input', buildAuthCommand);
-        tgApiHashEl.addEventListener('input', buildAuthCommand);
-        tgSessionFileEl.addEventListener('input', buildAuthCommand);
+        authResultHint.className = 'alert ok';
+        authResultHint.textContent = 'Telethon успешно подключен. Можно переходить к добавлению чатов.';
+        showAlert(data.message || 'Авторизация Telethon завершена', 'ok');
 
-        loadRuntimeConfig();
-    </script>
+        tgCode.value = '';
+        tg2fa.value = '';
+        await loadRuntimeConfig();
+    } catch (error) {
+        showAlert(error.message, 'err');
+    } finally {
+        verifyCodeBtn.disabled = false;
+        verifyCodeBtn.textContent = 'Подтвердить вход Telethon';
+    }
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('runtimeForm').addEventListener('submit', saveRuntimeConfig);
+    reloadBtn.addEventListener('click', loadRuntimeConfig);
+    sendCodeBtn.addEventListener('click', sendTelethonCode);
+    verifyCodeBtn.addEventListener('click', verifyTelethonCode);
+    loadRuntimeConfig();
+});
+</script>
 </body>
 </html>

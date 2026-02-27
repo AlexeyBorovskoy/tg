@@ -31,7 +31,7 @@ for _path in (
 
 import logging
 import asyncio
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
@@ -63,6 +63,7 @@ TEMPLATES_DIR.mkdir(exist_ok=True)
 STATIC_DIR.mkdir(exist_ok=True)
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Интеграция: своя авторизация (OAuth + JWT) или внешний auth-сервис
 try:
@@ -106,6 +107,8 @@ AUTH_LOCAL_ENABLED = os.environ.get("AUTH_LOCAL_ENABLED", "0").lower() in ("1", 
 AUTH_LOCAL_COOKIE_NAME = "session_token"
 AUTH_LOCAL_SESSION_DAYS = int(os.environ.get("AUTH_LOCAL_SESSION_DAYS", "30"))
 AUTH_LOCAL_MIN_PASSWORD_LEN = int(os.environ.get("AUTH_LOCAL_MIN_PASSWORD_LEN", "8"))
+AUTH_LOCAL_ADMIN_LOGIN = (os.environ.get("AUTH_LOCAL_ADMIN_LOGIN", "alex") or "").strip().lower()
+TELETHON_SESSION_DIR = Path(os.environ.get("TELETHON_SESSION_DIR", "/app/data/user-sessions"))
 
 # Включена ли какая-либо проверка авторизации
 AUTH_REQUIRED = AUTH_LOCAL_ENABLED or AUTH_OWN_ENABLED or (AUTH_CHECK_ENABLED and AUTH_SERVICE_URL)
@@ -122,6 +125,8 @@ def _is_public_path(path: str) -> bool:
         return True
     if path.startswith("/auth/"):
         return True
+    if path.startswith("/static/"):
+        return True
     return False
 
 
@@ -130,6 +135,20 @@ class LocalAuthUser:
     user_id: int
     login: str
     display_name: Optional[str] = None
+
+
+@dataclass
+class TelethonPendingAuth:
+    phone: str
+    phone_code_hash: str
+    tg_api_id: int
+    tg_api_hash: str
+    tg_session_file: str
+    created_at: datetime
+
+
+_TELETHON_PENDING_AUTH: Dict[int, TelethonPendingAuth] = {}
+TELETHON_CODE_TTL_SECONDS = int(os.environ.get("TELETHON_CODE_TTL_SECONDS", "600"))
 
 
 @app.middleware("http")
@@ -170,6 +189,16 @@ def _db_connect():
 
 def _normalize_login(login: str) -> str:
     return (login or "").strip().lower()
+
+
+def _is_admin_user(current_user) -> bool:
+    if isinstance(current_user, LocalAuthUser):
+        return _normalize_login(current_user.login) == AUTH_LOCAL_ADMIN_LOGIN
+    return False
+
+
+def _default_telethon_session_file(user_id: int) -> str:
+    return str(TELETHON_SESSION_DIR / f"user_{user_id}.session")
 
 
 def _is_valid_login(login: str) -> bool:
@@ -402,6 +431,17 @@ class UserRuntimeConfigUpdate(BaseModel):
     bot_token: Optional[str] = Field(None, description="Токен бота пользователя для рассылки")
     bot_name: Optional[str] = Field("Default Bot", description="Название бота")
     make_bot_default: bool = Field(True, description="Сделать бота дефолтным")
+
+
+class TelethonSendCodeRequest(BaseModel):
+    user_telegram_id: Optional[int] = Field(None, description="Telegram ID пользователя (legacy fallback)")
+    tg_phone: Optional[str] = Field(None, description="Телефон пользователя в формате +7999...")
+
+
+class TelethonVerifyCodeRequest(BaseModel):
+    user_telegram_id: Optional[int] = Field(None, description="Telegram ID пользователя (legacy fallback)")
+    code: str = Field(..., description="Код подтверждения из Telegram")
+    password: Optional[str] = Field(None, description="Пароль 2FA Telegram (если включен)")
 
 
 class PromptLibraryTemplateCreate(BaseModel):
@@ -643,7 +683,7 @@ def _load_user_telegram_credentials(conn, user_id: Optional[int]) -> Optional[di
             row = cur.fetchone()
         if not row:
             return None
-        session_file = row.get("tg_session_file") or f"/app/data/user-sessions/user_{user_id}.session"
+        session_file = row.get("tg_session_file") or _default_telethon_session_file(int(user_id))
         return {
             "tg_api_id": int(row["tg_api_id"]),
             "tg_api_hash": (row.get("tg_api_hash") or "").strip(),
@@ -730,6 +770,69 @@ def _write_user_secret_file(conn, user_id: int) -> Optional[str]:
             (user_id, str(secret_file), checksum),
         )
     return str(secret_file)
+
+
+def _get_pending_telethon_auth(user_id: int) -> Optional[TelethonPendingAuth]:
+    pending = _TELETHON_PENDING_AUTH.get(user_id)
+    if not pending:
+        return None
+    if datetime.now() - pending.created_at > timedelta(seconds=TELETHON_CODE_TTL_SECONDS):
+        _TELETHON_PENDING_AUTH.pop(user_id, None)
+        return None
+    return pending
+
+
+def _clear_pending_telethon_auth(user_id: int) -> None:
+    _TELETHON_PENDING_AUTH.pop(user_id, None)
+
+
+def _remove_session_artifacts(session_file: str) -> None:
+    if not session_file:
+        return
+    base = Path(session_file)
+    for path in (
+        base,
+        Path(str(base) + "-journal"),
+        Path(str(base) + ".journal"),
+    ):
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            logger.warning("Не удалось удалить session artifact: %s", path)
+
+
+def _sync_user_telegram_identity(conn, user_id: int, telegram_id: int) -> None:
+    """Привязывает telegram_id к users.id либо проверяет, что он совпадает."""
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT telegram_id FROM users WHERE id = %s LIMIT 1", (user_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        current_tg_id = row.get("telegram_id")
+        if current_tg_id is None:
+            cur.execute(
+                "SELECT id FROM users WHERE telegram_id = %s AND id <> %s LIMIT 1",
+                (telegram_id, user_id),
+            )
+            existing = cur.fetchone()
+            if existing:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Этот Telegram аккаунт уже привязан к другому пользователю. "
+                        "Используйте login того же владельца Telegram или отвяжите аккаунт у администратора."
+                    ),
+                )
+            cur.execute("UPDATE users SET telegram_id = %s, updated_at = now() WHERE id = %s", (telegram_id, user_id))
+            return
+        if int(current_tg_id) != int(telegram_id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Аккаунт Telegram не совпадает с профилем пользователя. "
+                    f"Ожидается Telegram ID {current_tg_id}, получен {telegram_id}."
+                ),
+            )
 
 
 async def check_chat_access(
@@ -905,10 +1008,13 @@ async def setup_page(
     """Персональная страница первичной настройки Telegram/Telethon для пользователя."""
     user_id = _resolve_user_id(db, current_user, create_from_telegram=False)
     user_telegram_id = _get_user_telegram_id(db, user_id)
+    is_admin = _is_admin_user(current_user)
     return templates.TemplateResponse("setup.html", {
         "request": request,
         "user_id": user_id or "",
         "user_telegram_id": user_telegram_id or "",
+        "is_admin": is_admin,
+        "admin_login": AUTH_LOCAL_ADMIN_LOGIN,
     })
 
 
@@ -1067,20 +1173,16 @@ async def register_submit(
 
     tg_id_value: Optional[int] = None
     tg_id_raw = (telegram_id or "").strip()
-    if not tg_id_raw:
-        return RedirectResponse(
-            url=f"/register?next={quote(next_path, safe='')}&error={quote('Укажите ваш Telegram ID', safe='')}",
-            status_code=302,
-        )
-    try:
-        tg_id_value = int(tg_id_raw)
-        if tg_id_value == 0:
-            raise ValueError("zero")
-    except ValueError:
-        return RedirectResponse(
-            url=f"/register?next={quote(next_path, safe='')}&error={quote('Telegram ID должен быть числом и не равен 0', safe='')}",
-            status_code=302,
-        )
+    if tg_id_raw:
+        try:
+            tg_id_value = int(tg_id_raw)
+            if tg_id_value == 0:
+                raise ValueError("zero")
+        except ValueError:
+            return RedirectResponse(
+                url=f"/register?next={quote(next_path, safe='')}&error={quote('Telegram ID должен быть числом и не равен 0', safe='')}",
+                status_code=302,
+            )
 
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
@@ -1091,8 +1193,11 @@ async def register_submit(
                     status_code=302,
                 )
 
-            cur.execute("SELECT id, name FROM users WHERE telegram_id = %s LIMIT 1", (tg_id_value,))
-            existing = cur.fetchone()
+            existing = None
+            if tg_id_value is not None:
+                cur.execute("SELECT id, name FROM users WHERE telegram_id = %s LIMIT 1", (tg_id_value,))
+                existing = cur.fetchone()
+
             if existing:
                 user_id = int(existing["id"])
                 user_name = (display_name or "").strip()
@@ -1102,7 +1207,10 @@ async def register_submit(
                         (user_name, user_id),
                     )
             else:
-                user_name = (display_name or "").strip() or f"User {tg_id_value}"
+                if tg_id_value is not None:
+                    user_name = (display_name or "").strip() or f"User {tg_id_value}"
+                else:
+                    user_name = (display_name or "").strip() or norm_login
                 cur.execute(
                     """
                     INSERT INTO users (telegram_id, name, is_active)
@@ -1455,6 +1563,7 @@ async def get_user_runtime_config(
         user_id = _resolve_user_id(db, current_user, user_telegram_id=user_telegram_id, create_from_telegram=True)
         if not user_id:
             raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
+        is_admin = _is_admin_user(current_user)
 
         creds = _load_user_telegram_credentials(db, user_id)
         bot = _get_user_default_bot(db, user_id)
@@ -1470,15 +1579,25 @@ async def get_user_runtime_config(
                 (user_id,),
             )
             secret_row = cur.fetchone()
+        session_exists = False
+        session_path = (creds or {}).get("tg_session_file")
+        if session_path:
+            try:
+                session_exists = Path(session_path).exists()
+            except Exception:
+                session_exists = False
 
         return {
             "user_id": user_id,
+            "is_admin": is_admin,
             "telegram_id": _get_user_telegram_id(db, user_id),
             "telegram": {
                 "configured": bool(creds),
                 "tg_api_id": creds.get("tg_api_id") if creds else None,
                 "tg_phone": creds.get("tg_phone") if creds else None,
-                "tg_session_file": creds.get("tg_session_file") if creds else None,
+                "tg_session_file": creds.get("tg_session_file") if creds and is_admin else None,
+                "session_path_controlled_by_admin": not is_admin,
+                "session_file_exists": session_exists,
             },
             "bot": {
                 "configured": bool(bot),
@@ -1488,7 +1607,8 @@ async def get_user_runtime_config(
                 "is_default": bool(bot.get("is_default")) if bot else False,
             },
             "secret_file": {
-                "path": secret_row.get("secret_file_path") if secret_row else None,
+                "path": secret_row.get("secret_file_path") if secret_row and is_admin else None,
+                "generated": bool(secret_row),
                 "checksum": secret_row.get("file_checksum") if secret_row else None,
                 "generated_at": secret_row.get("generated_at").isoformat() if secret_row and secret_row.get("generated_at") else None,
             },
@@ -1519,10 +1639,16 @@ async def set_user_runtime_config(
         user_id = _resolve_user_id(db, current_user, user_telegram_id=body.user_telegram_id)
         if not user_id:
             raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
+        is_admin = _is_admin_user(current_user)
         if not body.tg_api_id or not body.tg_api_hash.strip():
             raise HTTPException(status_code=400, detail="tg_api_id и tg_api_hash обязательны")
 
-        session_file = (body.tg_session_file or f"/app/data/user-sessions/user_{user_id}.session").strip()
+        default_session_file = _default_telethon_session_file(int(user_id))
+        if is_admin:
+            session_file = (body.tg_session_file or default_session_file).strip()
+        else:
+            # Для рядового пользователя путь хранится в едином системном каталоге и не редактируется.
+            session_file = default_session_file
         tg_api_hash = body.tg_api_hash.strip()
 
         with db.cursor() as cur:
@@ -1571,7 +1697,8 @@ async def set_user_runtime_config(
         return {
             "success": True,
             "user_id": user_id,
-            "secret_file_path": secret_file_path,
+            "secret_file_path": secret_file_path if is_admin else None,
+            "secret_file_generated": bool(secret_file_path),
             "created_bot_id": created_bot_id,
             "message": "Персональные runtime-настройки сохранены",
         }
@@ -1586,6 +1713,244 @@ async def set_user_runtime_config(
         logger.error("Ошибка сохранения runtime-config пользователя: %s", e)
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/user/telethon/send-code", response_class=JSONResponse)
+async def send_telethon_code(
+    request: Request,
+    body: TelethonSendCodeRequest,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
+    """Отправляет код подтверждения Telegram для web-авторизации Telethon."""
+    client = None
+    try:
+        from telethon import TelegramClient
+        from telethon.errors import ApiIdInvalidError, FloodWaitError, PhoneNumberInvalidError
+    except Exception as e:
+        logger.error("Telethon import error: %s", e)
+        raise HTTPException(status_code=500, detail="Telethon недоступен на сервере")
+
+    try:
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=body.user_telegram_id)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
+
+        creds = _load_user_telegram_credentials(db, user_id)
+        if not creds:
+            raise HTTPException(status_code=400, detail="Сначала сохраните API ID/API HASH на странице настройки")
+
+        phone = (body.tg_phone or creds.get("tg_phone") or "").strip()
+        if not phone:
+            raise HTTPException(status_code=400, detail="Укажите телефон Telegram в формате +7999...")
+        if not re.fullmatch(r"\+\d{6,20}", phone):
+            raise HTTPException(status_code=400, detail="Телефон должен быть в формате +79991234567")
+
+        # Если телефон в форме отличается от сохраненного — обновим его в БД.
+        if phone != (creds.get("tg_phone") or ""):
+            with db.cursor() as cur:
+                cur.execute(
+                    "UPDATE user_telegram_credentials SET tg_phone = %s, updated_at = now() WHERE user_id = %s",
+                    (phone, user_id),
+                )
+
+        session_file = (creds.get("tg_session_file") or "").strip()
+        if not session_file:
+            raise HTTPException(status_code=400, detail="Не задан tg_session_file. Сначала сохраните runtime-настройки.")
+        Path(session_file).parent.mkdir(parents=True, exist_ok=True)
+
+        client = TelegramClient(session_file, int(creds["tg_api_id"]), creds["tg_api_hash"])
+        await client.connect()
+
+        if await client.is_user_authorized():
+            me = await client.get_me()
+            if not me or not getattr(me, "id", None):
+                raise HTTPException(status_code=500, detail="Не удалось определить аккаунт Telegram после авторизации")
+            try:
+                _sync_user_telegram_identity(db, user_id, int(me.id))
+            except HTTPException:
+                _remove_session_artifacts(session_file)
+                raise
+            secret_file_path = _write_user_secret_file(db, user_id)
+            db.commit()
+            _clear_pending_telethon_auth(user_id)
+            audit_log(
+                db, _audit_user_id(current_user), "telethon_auth_already_authorized",
+                {"telegram_id": int(me.id)}, request, "user_runtime", str(user_id),
+            )
+            return {
+                "success": True,
+                "already_authorized": True,
+                "telegram_id": int(me.id),
+                "phone": phone,
+                "session_file": session_file if is_admin else None,
+                "secret_file_path": secret_file_path if is_admin else None,
+                "secret_file_generated": bool(secret_file_path),
+                "message": "Telethon уже авторизован для этого пользователя.",
+            }
+
+        sent = await client.send_code_request(phone)
+        code_hash = (getattr(sent, "phone_code_hash", None) or "").strip()
+        if not code_hash:
+            raise HTTPException(status_code=500, detail="Не удалось получить phone_code_hash от Telegram")
+
+        _TELETHON_PENDING_AUTH[user_id] = TelethonPendingAuth(
+            phone=phone,
+            phone_code_hash=code_hash,
+            tg_api_id=int(creds["tg_api_id"]),
+            tg_api_hash=creds["tg_api_hash"],
+            tg_session_file=session_file,
+            created_at=datetime.now(),
+        )
+        db.commit()
+        audit_log(
+            db, _audit_user_id(current_user), "telethon_code_sent",
+            {"phone": phone}, request, "user_runtime", str(user_id),
+        )
+        return {
+            "success": True,
+            "already_authorized": False,
+            "phone": phone,
+            "ttl_seconds": TELETHON_CODE_TTL_SECONDS,
+            "message": "Код отправлен в Telegram. Введите его в поле подтверждения.",
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except ApiIdInvalidError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Некорректные API ID / API HASH")
+    except PhoneNumberInvalidError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Некорректный номер телефона Telegram")
+    except FloodWaitError as e:
+        db.rollback()
+        wait_sec = int(getattr(e, "seconds", 0) or 0)
+        raise HTTPException(status_code=429, detail=f"Слишком частые запросы. Повторите через {wait_sec} сек.")
+    except Exception as e:
+        logger.exception("Ошибка отправки кода Telethon: %s", e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Не удалось отправить код подтверждения")
+    finally:
+        if client is not None:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+
+
+@app.post("/api/user/telethon/verify-code", response_class=JSONResponse)
+async def verify_telethon_code(
+    request: Request,
+    body: TelethonVerifyCodeRequest,
+    current_user: Optional[str] = Depends(get_current_auth_user),
+    db=Depends(get_db),
+):
+    """Подтверждает код Telegram (и 2FA при необходимости), завершая авторизацию Telethon."""
+    client = None
+    try:
+        from telethon import TelegramClient
+        from telethon.errors import (
+            SessionPasswordNeededError,
+            PhoneCodeInvalidError,
+            PhoneCodeExpiredError,
+            PasswordHashInvalidError,
+        )
+    except Exception as e:
+        logger.error("Telethon import error: %s", e)
+        raise HTTPException(status_code=500, detail="Telethon недоступен на сервере")
+
+    try:
+        user_id = _resolve_user_id(db, current_user, user_telegram_id=body.user_telegram_id)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
+        is_admin = _is_admin_user(current_user)
+
+        pending = _get_pending_telethon_auth(user_id)
+        if not pending:
+            raise HTTPException(status_code=400, detail="Срок действия кода истёк. Нажмите «Отправить код» снова.")
+
+        code = re.sub(r"\s+", "", (body.code or ""))
+        if not code:
+            raise HTTPException(status_code=400, detail="Введите код подтверждения из Telegram")
+
+        Path(pending.tg_session_file).parent.mkdir(parents=True, exist_ok=True)
+        client = TelegramClient(pending.tg_session_file, pending.tg_api_id, pending.tg_api_hash)
+        await client.connect()
+
+        if not await client.is_user_authorized():
+            try:
+                await client.sign_in(
+                    phone=pending.phone,
+                    code=code,
+                    phone_code_hash=pending.phone_code_hash,
+                )
+            except SessionPasswordNeededError:
+                password = (body.password or "").strip()
+                if not password:
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "success": False,
+                            "needs_password": True,
+                            "message": "Для этого аккаунта включен пароль 2FA. Введите пароль Telegram и повторите.",
+                        },
+                    )
+                await client.sign_in(password=password)
+
+        me = await client.get_me()
+        if not me or not getattr(me, "id", None):
+            raise HTTPException(status_code=500, detail="Не удалось получить данные профиля Telegram")
+
+        try:
+            _sync_user_telegram_identity(db, user_id, int(me.id))
+        except HTTPException:
+            _remove_session_artifacts(pending.tg_session_file)
+            _clear_pending_telethon_auth(user_id)
+            db.rollback()
+            raise
+
+        secret_file_path = _write_user_secret_file(db, user_id)
+        db.commit()
+        _clear_pending_telethon_auth(user_id)
+        audit_log(
+            db, _audit_user_id(current_user), "telethon_auth_completed",
+            {"telegram_id": int(me.id), "phone": pending.phone}, request, "user_runtime", str(user_id),
+        )
+        return {
+            "success": True,
+            "telegram_id": int(me.id),
+            "telegram_name": getattr(me, "first_name", None) or getattr(me, "username", None),
+            "phone": pending.phone,
+            "session_file": pending.tg_session_file if is_admin else None,
+            "secret_file_path": secret_file_path if is_admin else None,
+            "secret_file_generated": bool(secret_file_path),
+            "message": "Telethon успешно авторизован.",
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except PhoneCodeInvalidError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Неверный код подтверждения")
+    except PhoneCodeExpiredError:
+        if "user_id" in locals():
+            _clear_pending_telethon_auth(user_id)
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Код подтверждения истёк. Запросите новый код.")
+    except PasswordHashInvalidError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Неверный пароль 2FA Telegram")
+    except Exception as e:
+        logger.exception("Ошибка подтверждения кода Telethon: %s", e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Не удалось завершить авторизацию Telethon")
+    finally:
+        if client is not None:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
 
 
 @app.get("/api/channels", response_class=JSONResponse)
@@ -2178,7 +2543,7 @@ async def get_prompts_library(
             result = []
             for ch in channels:
                 cur.execute("""
-                    SELECT id, prompt_type, name, substring("text" from 1 for 200) as text_preview, is_default, created_at
+                    SELECT id, prompt_type, name, "text", is_default, created_at
                     FROM channel_prompts
                     WHERE channel_id = %s
                     ORDER BY prompt_type, is_default DESC, created_at
@@ -2191,8 +2556,8 @@ async def get_prompts_library(
                     "name": ch['name'],
                     "telegram_chat_id": ch['telegram_chat_id'],
                     "prompts": {
-                        "digest": [{"id": p["id"], "name": p["name"], "text_preview": (p["text_preview"] or "")[:150], "is_default": p["is_default"]} for p in digest_prompts],
-                        "consolidated": [{"id": p["id"], "name": p["name"], "text_preview": (p["text_preview"] or "")[:150], "is_default": p["is_default"]} for p in consolidated_prompts],
+                        "digest": [{"id": p["id"], "name": p["name"], "text": p.get("text") or "", "is_default": p["is_default"]} for p in digest_prompts],
+                        "consolidated": [{"id": p["id"], "name": p["name"], "text": p.get("text") or "", "is_default": p["is_default"]} for p in consolidated_prompts],
                     }
                 })
             
@@ -2284,7 +2649,7 @@ async def sync_prompt_library(
                     name = p.stem.replace("_", " ").replace("-", " ").title()
                     cur.execute("""
                         INSERT INTO prompt_library (name, prompt_type, file_path, body, owner_user_id, visibility, is_base)
-                        VALUES (%s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, NULL, 'public', true)
                         ON CONFLICT (file_path) DO UPDATE SET
                             name = EXCLUDED.name,
                             prompt_type = EXCLUDED.prompt_type,

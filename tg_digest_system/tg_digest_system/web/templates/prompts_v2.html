@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+    <link rel="stylesheet" href="/static/platform_shell.css">
+    <script src="/static/platform_shell.js" defer></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Промпты — TG Digest</title>
@@ -182,10 +184,11 @@
             color: #78909c;
             line-height: 1.4;
             margin-top: 4px;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
+            white-space: pre-wrap;
+            max-height: 120px;
+            overflow: auto;
+            border-top: 1px dashed #e0e0e0;
+            padding-top: 4px;
         }
 
         .prompt-item-actions {
@@ -783,7 +786,7 @@
                         <span class="material-icons">${prompt.isDefault ? 'description' : 'note'}</span>
                         ${escapeHtml(prompt.name)}
                     </div>
-                    <div class="prompt-item-preview">${escapeHtml(prompt.text.substring(0, 100))}${prompt.text.length > 100 ? '...' : ''}</div>
+                    <div class="prompt-item-preview">${escapeHtml(prompt.text || '')}</div>
                     ${!prompt.isDefault ? `
                     <div class="prompt-item-actions" onclick="event.stopPropagation()">
                         <button class="icon-btn-small" onclick="editPromptName('${prompt.id}')" title="Редактировать название">

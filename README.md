@@ -21,7 +21,8 @@ TG Digest System автоматизирует мониторинг Telegram-ча
 6. Веб-интерфейс
 7. Эксплуатация и диагностика
 8. База данных (кратко)
-9. Безопасность
+9. Подробная схема БД
+10. Безопасность
 
 ---
 
@@ -167,7 +168,9 @@ docker compose logs -f worker
 
 Авторизация:
 
-- встроенная (OAuth Яндекс + JWT) или внешний auth-сервис (см. `tg_digest_system/tg_digest_system/docker/secrets.env.example`).
+- OAuth-поток (Яндекс) и JWT-сессия,
+- локальная auth login/password для тестового контура (таблица `user_local_auth`, миграция `010_local_login_password_auth.sql`),
+- внешний auth-сервис (опционально, см. `tg_digest_system/tg_digest_system/docker/secrets.env.example`).
 
 ---
 
@@ -226,10 +229,19 @@ docker exec -it tg_digest_worker python /app/scripts/digest_worker.py --once --s
 Схема и миграции:
 - `tg_digest_system/tg_digest_system/db/schema.sql`
 - `tg_digest_system/tg_digest_system/db/migrations/*.sql`
+- критичные для текущего multi-user контура: `009_user_runtime_and_prompt_sharing.sql`, `010_local_login_password_auth.sql`
 
 ---
 
-## 9. Безопасность
+## 9. Подробная схема БД
+
+Отдельная документация по таблицам, связям и multi-user сущностям:
+
+- `docs/database/05_tg_digest_schema.md`
+
+---
+
+## 10. Безопасность
 
 - Не коммитьте секреты: используйте `docker/secrets.env`.
 - Для web UI используйте авторизацию (OAuth/JWT или внешний auth).
