@@ -102,9 +102,15 @@ api_hash = 0123456789abcdef0123456789abcdef</div>
     <section class="grid two">
         <article class="card">
             <h2>Шаг 2. Отправка кода из Telegram</h2>
-            <p class="hint">После сохранения данных нажмите кнопку ниже. Код придет в приложение Telegram на указанный номер.</p>
+            <p class="hint">
+                После сохранения API-данных нажмите кнопку ниже. Это запускает Telegram-авторизацию для Telethon.
+                Код придет в Telegram на указанный номер.
+            </p>
             <div class="btns">
                 <button class="btn main" id="sendCodeBtn" type="button">Отправить код в Telegram</button>
+            </div>
+            <div class="alert warn" style="margin-top:10px;">
+                Без этого шага поле "Код из Telegram" на следующем шаге заполнять бессмысленно: код появится только после нажатия кнопки.
             </div>
             <div class="hint" id="sendCodeStatus"></div>
         </article>
@@ -113,13 +119,26 @@ api_hash = 0123456789abcdef0123456789abcdef</div>
             <h2>Шаг 3. Подтверждение кода и 2FA</h2>
             <label for="tgCode">Код из Telegram</label>
             <input id="tgCode" type="text" placeholder="например: 12345">
+            <p class="hint">
+                Что вводить: одноразовый код подтверждения из официального Telegram-клиента
+                (обычно 5 цифр, без пробелов). Код действует ограниченное время.
+            </p>
 
             <label for="tg2fa">Пароль 2FA (если включен)</label>
             <input id="tg2fa" type="password" placeholder="если не включен — оставить пустым">
+            <p class="hint">
+                Что это: пароль двухэтапной проверки Telegram (Cloud Password).
+                Нужен только если в вашем аккаунте включена 2FA.
+                Если 2FA выключена, поле оставляйте пустым.
+            </p>
 
             <div class="btns">
                 <button class="btn main" id="verifyCodeBtn" type="button">Подтвердить вход Telethon</button>
             </div>
+
+            <div class="code" style="margin-top:10px;">Где настраивается 2FA в Telegram:
+Settings -> Privacy and Security -> Two-Step Verification
+</div>
 
             <div class="alert ok" style="margin-top:12px;" id="authResultHint">
                 После успешного шага будет создан session-файл и обновлен secret-файл пользователя.

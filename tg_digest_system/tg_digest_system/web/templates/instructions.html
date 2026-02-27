@@ -364,9 +364,41 @@
                 </div>
             </div>
 
-            <!-- Шаг 3: ID чата/канала -->
+            <!-- Шаг 3: Подтверждение кода и 2FA -->
             <div class="step">
                 <div class="step-number">3</div>
+                <div class="step-title">Авторизация Telethon: код из Telegram и пароль 2FA</div>
+                <div class="step-description">
+                    После сохранения <code>api_id</code>/<code>api_hash</code> на странице <code>/setup</code> нужно завершить вход в Telegram для Telethon.
+                </div>
+
+                <ol class="step-list" style="margin-top: 12px;">
+                    <li>Нажмите кнопку <code>Отправить код в Telegram</code> на шаге 2.</li>
+                    <li>Откройте ваш Telegram-клиент и найдите сообщение с кодом входа.</li>
+                    <li>В поле <code>Код из Telegram</code> введите одноразовый код (обычно 5 цифр, без пробелов).</li>
+                    <li>Если Telegram запросил пароль двухэтапной проверки, введите его в поле <code>Пароль 2FA</code>.</li>
+                    <li>Нажмите <code>Подтвердить вход Telethon</code>.</li>
+                </ol>
+
+                <div class="info-box">
+                    <strong>Для чего это нужно:</strong> после успешного шага создаётся session-файл Telethon,
+                    и сервис получает право читать ваши выбранные чаты от имени вашего Telegram-аккаунта.
+                </div>
+
+                <div class="warning-box">
+                    <strong>2FA (Cloud Password)</strong>: если 2FA в аккаунте выключена, поле пароля оставляйте пустым.
+                    Если 2FA включена и пароль не ввести, авторизация не завершится.
+                </div>
+
+                <div class="code-block">
+                    Где включается/меняется 2FA в Telegram:
+                    Settings -> Privacy and Security -> Two-Step Verification
+                </div>
+            </div>
+
+            <!-- Шаг 4: ID чата/канала -->
+            <div class="step">
+                <div class="step-number">4</div>
                 <div class="step-title">Узнать ID чата или канала</div>
                 <div class="step-description">
                     Для добавления чата в систему вам нужен его Telegram ID. Способ зависит от типа чата:
@@ -410,9 +442,9 @@
                 </div>
             </div>
             
-            <!-- Шаг 4: ID получателя дайджестов -->
+            <!-- Шаг 5: ID получателя дайджестов -->
             <div class="step">
-                <div class="step-number">4</div>
+                <div class="step-number">5</div>
                 <div class="step-title">Указать куда присылать дайджесты</div>
                 <div class="step-description">
                     Вы можете получать дайджесты в личные сообщения или через бота:
@@ -443,9 +475,9 @@
                 </div>
             </div>
             
-            <!-- Шаг 5: Проверка доступа -->
+            <!-- Шаг 6: Проверка доступа -->
             <div class="step">
-                <div class="step-number">5</div>
+                <div class="step-number">6</div>
                 <div class="step-title">Проверить доступ системы к чату</div>
                 <div class="step-description">
                     Система работает только с чатами, где она присутствует. Перед добавлением убедитесь:
@@ -463,9 +495,9 @@
                 </div>
             </div>
             
-            <!-- Шаг 6: Добавление канала -->
+            <!-- Шаг 7: Добавление канала -->
             <div class="step">
-                <div class="step-number">6</div>
+                <div class="step-number">7</div>
                 <div class="step-title">Добавить канал в систему</div>
                 <div class="step-description">
                     После получения всех данных:
