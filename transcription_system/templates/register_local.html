@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Регистрация | Платформа</title>
+    <link rel="stylesheet" href="/static/platform_shell.css">
+    <script src="/static/platform_shell.js" defer></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #eef2f6;
+            color: #27313d;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .card {
+            width: 100%;
+            max-width: 440px;
+            background: #fff;
+            border: 1px solid #d7dde6;
+            border-radius: 8px;
+            padding: 24px;
+        }
+        h1 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
+        p { margin: 0 0 16px; color: #5f6f7f; font-size: 14px; }
+        label { display: block; font-size: 13px; margin: 12px 0 6px; font-weight: 600; }
+        input {
+            width: 100%;
+            border: 1px solid #cfd8e3;
+            border-radius: 4px;
+            padding: 10px 11px;
+            font-size: 14px;
+            background: #fff;
+        }
+        .actions {
+            margin-top: 16px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            border: 1px solid #2f6ea6;
+            border-radius: 4px;
+            background: #2f6ea6;
+            color: #fff;
+            font-weight: 600;
+            padding: 10px 14px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .btn.secondary {
+            background: #fff;
+            color: #2f6ea6;
+        }
+        .err {
+            margin-top: 12px;
+            border: 1px solid #efd0d0;
+            background: #fff1f1;
+            color: #8e2626;
+            border-radius: 4px;
+            padding: 10px 12px;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>Регистрация</h1>
+        <p>Создайте учетную запись для входа. Минимальная длина пароля: {{ min_password_len }} символов.</p>
+        {% if error_msg %}
+        <div class="err">{{ error_msg }}</div>
+        {% endif %}
+        <form method="post" action="/register">
+            <input type="hidden" name="next" value="{{ next_url or '/resources' }}">
+
+            <label for="login">Логин</label>
+            <input id="login" name="login" type="text" placeholder="например: user_test" required autofocus>
+
+            <label for="password">Пароль</label>
+            <input id="password" name="password" type="password" placeholder="минимум {{ min_password_len }} символов" required>
+
+            <label for="password_confirm">Подтверждение пароля</label>
+            <input id="password_confirm" name="password_confirm" type="password" required>
+
+            <div class="actions">
+                <button class="btn" type="submit">Создать учетную запись</button>
+                <a class="btn secondary" href="/login?next={{ next_url or '/resources' }}">Назад ко входу</a>
+            </div>
+        </form>
+    </main>
+</body>
+</html>

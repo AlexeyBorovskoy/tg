@@ -104,7 +104,8 @@ api_hash = 0123456789abcdef0123456789abcdef</div>
             <h2>Шаг 2. Отправка кода из Telegram</h2>
             <p class="hint">
                 После сохранения API-данных нажмите кнопку ниже. Это запускает Telegram-авторизацию для Telethon.
-                Код придет в Telegram на указанный номер.
+                Обычно код приходит не в SMS, а в Telegram-приложение на этот номер
+                (системный чат <code>Telegram</code>, аккаунт <code>777000</code>).
             </p>
             <div class="btns">
                 <button class="btn main" id="sendCodeBtn" type="button">Отправить код в Telegram</button>
@@ -309,8 +310,10 @@ async function sendTelethonCode() {
             }
             showAlert('Авторизация уже активна для этого пользователя.', 'ok');
         } else {
-            sendCodeStatus.textContent = 'Код отправлен. Срок действия: ' + (data.ttl_seconds || 600) + ' сек.';
-            showAlert('Код отправлен в Telegram. Введите его в следующем блоке.', 'ok');
+            const hint = data.delivery_hint || 'Код отправлен в Telegram.';
+            const dtype = data.code_delivery_type ? (' Тип: ' + data.code_delivery_type + '.') : '';
+            sendCodeStatus.textContent = hint + dtype + ' Срок действия: ' + (data.ttl_seconds || 600) + ' сек.';
+            showAlert(hint + ' Введите код в следующем блоке.', 'ok');
         }
     } catch (error) {
         showAlert(error.message, 'err');

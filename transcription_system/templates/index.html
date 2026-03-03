@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}Новая задача | Транскрибатор{% endblock %}
+{% block tab_index %}active{% endblock %}
+{% block extra_css %}
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+.field label {
+    display: block;
+    font-size: 12px;
+    color: #5a6a79;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+.field input,
+.field select {
+    width: 100%;
+    border: 1px solid #cfd8e3;
+    border-radius: 4px;
+    padding: 10px 11px;
+    font-size: 14px;
+    background: #fff;
+}
+.row-actions {
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+#result {
+    border: 1px solid #d7e5d7;
+    background: #edf8ed;
+    color: #246624;
+    border-radius: 4px;
+    padding: 10px 12px;
+    display: none;
+    margin-top: 14px;
+    font-size: 13px;
+}
+#error {
+    border: 1px solid #efd0d0;
+    background: #fff1f1;
+    color: #8e2626;
+    border-radius: 4px;
+    padding: 10px 12px;
+    display: none;
+    margin-top: 14px;
+    font-size: 13px;
+}
+.badge {
+    font-size: 11px;
+    border-radius: 999px;
+    padding: 2px 8px;
+    border: 1px solid #d0d8e2;
+    background: #f8fbff;
+    color: #4f6272;
+}
+.badge.running { background: #eef5ff; border-color: #c6d9f4; color: #265e9c; }
+.badge.done { background: #effaf1; border-color: #bde0c5; color: #2a7a3b; }
+.badge.error { background: #fff3f3; border-color: #f0c7c7; color: #a02f2f; }
+@media (max-width: 900px) {
+    .form-grid { grid-template-columns: 1fr; }
+}
+{% endblock %}
+{% block content %}
+<section class="page-header">
+    <h1>Запуск транскрибации</h1>
+    <p>Загрузите аудио-файл, сервис создаст задачу и выдаст результат в форматах Markdown/TXT/JSON.</p>
+</section>
+
+<section class="content-card">
+    <div class="form-grid">
+        <div class="field" style="grid-column: 1 / -1;">
+            <label for="audioFile">Аудио файл</label>
+            <input id="audioFile" type="file" accept=".mp3,.wav,.m4a,.webm,.ogg,.mp4,.aac" />
+        </div>
+        <div class="field">
+            <label for="sourceKind">Тип источника</label>
+            <select id="sourceKind">
+                <option value="voice_message">Голосовое сообщение</option>
+                <option value="meeting">Совещание/конференция</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="provider">ASR провайдер</label>
+            <select id="provider">
+                {% for p in providers %}
+                    <option value="{{ p }}" {% if p == default_provider %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="speakersExpected">Ожидаемое число спикеров (опц.)</label>
+            <input id="speakersExpected" type="number" min="0" max="20" placeholder="например: 3" />
+        </div>
+        <div class="field" style="display: flex; align-items: center; gap: 10px;">
+            <input id="diarization" type="checkbox" checked />
+            <label for="diarization" style="margin: 0;">Включить разметку по ролям (diarization)</label>
+        </div>
+        <div class="field" style="display: flex; align-items: center; gap: 10px;">
+            <input id="llmEnabled" type="checkbox" checked />
+            <label for="llmEnabled" style="margin: 0;">LLM-постобработка (включена по умолчанию)</label>
+        </div>
+        <div class="field" style="display: flex; align-items: center; gap: 10px;">
+            <input id="rolesEnabled" type="checkbox" checked />
+            <label for="rolesEnabled" style="margin: 0;">Авто-назначение ролей спикеров</label>
+        </div>
+        <div class="field">
+            <label for="llmProfile">LLM профиль</label>
+            <select id="llmProfile">
+                <option value="auto">auto (по типу источника)</option>
+                <option value="voice">voice</option>
+                <option value="meeting">meeting</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="llmModelOverride">LLM модель (override, опционально)</label>
+            <input id="llmModelOverride" type="text" placeholder="например: gpt-5" />
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+            <label for="promptId">Промт из библиотеки (опционально, иначе дефолт по профилю)</label>
+            <select id="promptId">
+                <option value="">Авто: дефолтный промт</option>
+                {% for p in prompts %}
+                    <option value="{{ p.id }}">
+                        {{ p.name }} [{{ p.profile }}]{% if p.is_default %} (default){% endif %}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="row-actions">
+        <button class="btn" onclick="createJob()">Создать задачу</button>
+        <a class="btn secondary" href="/jobs">Открыть список задач</a>
+    </div>
+
+    <div id="result"></div>
+    <div id="error"></div>
+</section>
+
+<section class="content-card">
+    <h3 style="margin-bottom: 12px;">Последние задачи</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Файл</th>
+                <th>Provider</th>
+                <th>Статус</th>
+                <th>LLM</th>
+                <th>Роли</th>
+                <th>Промт</th>
+                <th>Создано</th>
+                <th>Артефакты</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for j in jobs %}
+            <tr>
+                <td><code>{{ j.id[:10] }}</code></td>
+                <td>{{ j.input_filename }}</td>
+                <td>{{ j.provider }}</td>
+                <td><span class="badge {{ j.status }}">{{ j.status }}</span></td>
+                <td>
+                    {% if j.llm_enabled %}on{% else %}off{% endif %}
+                    {% if j.llm_status %} · {{ j.llm_status }}{% endif %}
+                </td>
+                <td>
+                    {% if j.roles_enabled %}on{% else %}off{% endif %}
+                    {% if j.roles_status %} · {{ j.roles_status }}{% endif %}
+                </td>
+                <td>{{ j.prompt_name_used or '—' }}</td>
+                <td>{{ j.created_at }}</td>
+                <td>
+                    {% if j.status == 'done' %}
+                        <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=md">md</a> |
+                        <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=txt">txt</a> |
+                        <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=json">json</a>
+                        {% if j.source_kind == 'meeting' %}
+                         | <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=protocol_md">protocol</a>
+                        {% endif %}
+                        {% if j.provider == 'compare' %}
+                         | <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=compare_md">compare</a>
+                        {% endif %}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not jobs %}
+            <tr><td colspan="9">Пока нет задач.</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script>
+async function createJob() {
+    const fileInput = document.getElementById('audioFile');
+    const diarization = document.getElementById('diarization').checked;
+    const speakersExpected = document.getElementById('speakersExpected').value.trim();
+    const sourceKind = document.getElementById('sourceKind').value;
+    const provider = document.getElementById('provider').value;
+    const llmEnabled = document.getElementById('llmEnabled').checked;
+    const rolesEnabled = document.getElementById('rolesEnabled').checked;
+    const llmProfile = document.getElementById('llmProfile').value;
+    const llmModelOverride = document.getElementById('llmModelOverride').value.trim();
+    const promptId = document.getElementById('promptId').value.trim();
+    const result = document.getElementById('result');
+    const error = document.getElementById('error');
+
+    result.style.display = 'none';
+    error.style.display = 'none';
+
+    if (!fileInput.files || !fileInput.files[0]) {
+        error.textContent = 'Выберите аудио файл.';
+        error.style.display = 'block';
+        return;
+    }
+
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    fd.append('provider', provider);
+    fd.append('diarization', diarization ? 'true' : 'false');
+    fd.append('source_kind', sourceKind);
+    fd.append('llm_enabled', llmEnabled ? 'true' : 'false');
+    fd.append('roles_enabled', rolesEnabled ? 'true' : 'false');
+    fd.append('llm_profile', llmProfile);
+    if (speakersExpected) fd.append('speakers_expected', speakersExpected);
+    if (llmModelOverride) fd.append('llm_model_override', llmModelOverride);
+    if (promptId) fd.append('prompt_id', promptId);
+
+    try {
+        const resp = await fetch('/api/v1/transcription/jobs', { method: 'POST', body: fd });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            throw new Error(data?.error?.message || 'Ошибка создания задачи');
+        }
+        const jobId = data.data.job_id;
+        result.innerHTML = `Задача создана: <code>${jobId}</code>. Статус можно смотреть на странице <a href="/jobs">/jobs</a>.`;
+        result.style.display = 'block';
+    } catch (e) {
+        error.textContent = e.message || 'Не удалось создать задачу';
+        error.style.display = 'block';
+    }
+}
+</script>
+{% endblock %}

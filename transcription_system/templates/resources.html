@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Ресурсы | Платформа{% endblock %}
+{% block tab_resources %}active{% endblock %}
+{% block extra_css %}
+.resources-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+.resource-card {
+    border: 1px solid #d7dde6;
+    border-radius: 6px;
+    background: #fff;
+    padding: 16px;
+}
+.resource-card h3 {
+    margin: 0 0 8px;
+    font-size: 20px;
+    font-weight: 600;
+}
+.resource-card p {
+    margin: 0 0 14px;
+    color: #5f6f7f;
+    font-size: 14px;
+}
+.resource-card .meta {
+    margin-top: 10px;
+    color: #6f7d8a;
+    font-size: 12px;
+}
+@media (max-width: 900px) {
+    .resources-grid { grid-template-columns: 1fr; }
+}
+{% endblock %}
+{% block content %}
+<section class="page-header">
+    <h1>Выбор ресурса</h1>
+    <p>Пользователь <code>{{ login }}</code>. Выберите модуль, с которым хотите работать в текущей сессии.</p>
+</section>
+
+<section class="content-card">
+    <div class="resources-grid">
+        {% for item in resource_items %}
+        <article class="resource-card">
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.description }}</p>
+            <a class="btn" href="{{ item.url }}">Открыть</a>
+            <div class="meta">type: {{ item.tag }}</div>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

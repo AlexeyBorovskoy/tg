@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход | Платформа</title>
+    <link rel="stylesheet" href="/static/platform_shell.css">
+    <script src="/static/platform_shell.js" defer></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #eef2f6;
+            color: #27313d;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .card {
+            width: 100%;
+            max-width: 420px;
+            background: #fff;
+            border: 1px solid #d7dde6;
+            border-radius: 8px;
+            padding: 24px;
+        }
+        h1 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
+        p { margin: 0 0 16px; color: #5f6f7f; font-size: 14px; }
+        label { display: block; font-size: 13px; margin: 12px 0 6px; font-weight: 600; }
+        input {
+            width: 100%;
+            border: 1px solid #cfd8e3;
+            border-radius: 4px;
+            padding: 10px 11px;
+            font-size: 14px;
+            background: #fff;
+        }
+        .actions {
+            margin-top: 16px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            border: 1px solid #2f6ea6;
+            border-radius: 4px;
+            background: #2f6ea6;
+            color: #fff;
+            font-weight: 600;
+            padding: 10px 14px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .btn.secondary {
+            background: #fff;
+            color: #2f6ea6;
+        }
+        .err {
+            margin-top: 12px;
+            border: 1px solid #efd0d0;
+            background: #fff1f1;
+            color: #8e2626;
+            border-radius: 4px;
+            padding: 10px 12px;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>Вход</h1>
+        <p>Единая авторизация сервиса. После входа откроется страница выбора ресурса.</p>
+        {% if error_msg %}
+        <div class="err">{{ error_msg }}</div>
+        {% endif %}
+        <form method="post" action="/login">
+            <input type="hidden" name="next" value="{{ next_url or '/resources' }}">
+            <label for="username">Логин</label>
+            <input id="username" name="username" type="text" required autofocus autocomplete="username">
+
+            <label for="password">Пароль</label>
+            <input id="password" name="password" type="password" required autocomplete="current-password">
+
+            <div class="actions">
+                <button class="btn" type="submit">Войти</button>
+                <a class="btn secondary" href="/register?next={{ next_url or '/resources' }}">Регистрация</a>
+            </div>
+        </form>
+    </main>
+</body>
+</html>

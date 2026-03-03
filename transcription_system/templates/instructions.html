@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Инструкции | Транскрибатор{% endblock %}
+{% block tab_instructions %}active{% endblock %}
+{% block content %}
+<section class="page-header">
+    <h1>Инструкции по работе</h1>
+    <p>Сервис предназначен для двух типов задач: голосовые сообщения и большие записи совещаний/конференций.</p>
+</section>
+
+<section class="content-card">
+    <h3 style="margin-bottom: 10px;">Сценарий 1. Голосовые сообщения</h3>
+    <ol style="padding-left: 18px; line-height: 1.6;">
+        <li>Загрузите короткий аудио-файл на странице <code>Новая задача</code> с типом <code>voice_message</code>.</li>
+        <li>Выберите ASR-провайдер: <code>assemblyai</code>, <code>local_whisper</code> или <code>compare</code>.</li>
+        <li>Включите diarization только если нужно распознавать несколько участников.</li>
+        <li>После статуса <code>done</code> скачайте <code>txt</code> или <code>md</code> и отправьте в чат вместо голосового.</li>
+    </ol>
+</section>
+
+<section class="content-card">
+    <h3 style="margin-bottom: 10px;">Сценарий 2. Совещания и конференции</h3>
+    <ol style="padding-left: 18px; line-height: 1.6;">
+        <li>Выбирайте тип <code>meeting</code> и включайте diarization.</li>
+        <li>Для рабочего контура используйте провайдер <code>assemblyai</code> как основной (стабильная сегментация и качество речи).</li>
+        <li>Укажите ожидаемое число спикеров для более стабильной разметки ролей.</li>
+        <li>Пополняйте глоссарий на вкладке <code>Глоссарий</code> до запуска задач: термины используются и для post-fix, и как <code>word_boost</code> в ASR.</li>
+        <li>Оставьте включенным параметр <code>Авто-назначение ролей</code>, если хотите автоматическую подпись спикеров.</li>
+        <li>После завершения задачи скачайте <code>protocol.md</code>: в нём будут тезисы, решения и поручения с цитатами.</li>
+        <li>Для интеграции в TG Digest используйте API-эндпоинты ниже.</li>
+    </ol>
+</section>
+
+<section class="content-card">
+    <h3 style="margin-bottom: 10px;">API v1</h3>
+    <table>
+        <thead>
+            <tr><th>Метод</th><th>Endpoint</th><th>Назначение</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>POST</td><td><code>/api/v1/transcription/jobs</code></td><td>Создать задачу (multipart, поле <code>file</code>)</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/transcription/jobs</code></td><td>Список задач</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/transcription/jobs/{job_id}</code></td><td>Детали задачи</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/transcription/jobs/{job_id}/artifacts?format=md|txt|json</code></td><td>Скачать результат</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/transcription/jobs/{job_id}/artifacts?format=protocol_md|protocol_json</code></td><td>Скачать протокол meeting-задачи</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/transcription/jobs/{job_id}/artifacts?format=compare_md|assemblyai_md|local_whisper_md</code></td><td>Скачать сравнение/результаты провайдеров (для <code>provider=compare</code>)</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/transcription/jobs/{job_id}/segments</code></td><td>Сегменты стенограммы (таймкод, спикер, текст)</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/transcription/jobs/{job_id}/glossary-stats</code></td><td>Статистика применённых замен глоссария</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/transcription/jobs/{job_id}/protocol</code></td><td>Протокол из БД (JSON + markdown)</td></tr>
+            <tr><td>POST</td><td><code>/api/v1/transcription/jobs/{job_id}/protocol/rebuild</code></td><td>Пересобрать протокол после правок speaker-map</td></tr>
+            <tr><td>PUT</td><td><code>/api/v1/transcription/jobs/{job_id}/speaker-map</code></td><td>Переименовать роли спикеров</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/glossary</code></td><td>Получить глоссарий</td></tr>
+            <tr><td>POST</td><td><code>/api/v1/glossary/terms</code></td><td>Добавить/обновить термин</td></tr>
+            <tr><td>DELETE</td><td><code>/api/v1/glossary/terms/{id}</code></td><td>Удалить термин</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/prompts</code></td><td>Список библиотеки промтов</td></tr>
+            <tr><td>POST</td><td><code>/api/v1/prompts</code></td><td>Создать промт</td></tr>
+            <tr><td>PUT</td><td><code>/api/v1/prompts/{id}</code></td><td>Обновить промт</td></tr>
+            <tr><td>DELETE</td><td><code>/api/v1/prompts/{id}</code></td><td>Удалить промт</td></tr>
+            <tr><td>POST</td><td><code>/api/v1/prompts/{id}/activate</code></td><td>Назначить default по профилю</td></tr>
+            <tr><td>GET</td><td><code>/api/v1/prompts/export?active_only=true|false</code></td><td>Экспорт библиотеки промтов в JSON</td></tr>
+            <tr><td>POST</td><td><code>/api/v1/prompts/import</code></td><td>Импорт JSON (режим <code>merge</code> или <code>replace</code>, требуется <code>schema_version=1</code>)</td></tr>
+        </tbody>
+    </table>
+    <p style="margin-top:10px;">
+        Для LLM-постобработки используйте поля:
+        <code>provider=assemblyai|local_whisper|compare|mock</code>,
+        <code>llm_enabled=true|false</code>,
+        <code>llm_profile=auto|voice|meeting</code>,
+        <code>llm_model_override=gpt-5</code> (опционально).
+        Для авто-ролей: <code>roles_enabled=true|false</code>.
+    </p>
+</section>
+{% endblock %}

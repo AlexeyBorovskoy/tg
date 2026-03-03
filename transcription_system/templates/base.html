@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Transcription System{% endblock %}</title>
+    <link rel="stylesheet" href="/static/platform_shell.css">
+    <script src="/static/platform_shell.js" defer></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            color: #212121;
+        }
+        .header {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0 24px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .header-title {
+            font-size: 18px;
+            font-weight: 400;
+            color: #212121;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header-title .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #2f6ea6;
+        }
+        .header-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .status-pill {
+            border: 1px solid #cfd8e3;
+            background: #f7f9fc;
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 12px;
+            color: #516170;
+        }
+        .tabs {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            padding: 0 24px;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.05);
+            overflow-x: auto;
+        }
+        .tab {
+            padding: 14px 20px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #78909c;
+            border-bottom: 2px solid transparent;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            text-decoration: none;
+            display: inline-block;
+            white-space: nowrap;
+        }
+        .tab:hover { color: #37474f; }
+        .tab.active {
+            color: #1976d2;
+            border-bottom-color: #1976d2;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 24px auto;
+            padding: 0 24px;
+        }
+        .page-header,
+        .content-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        .page-header h1 { font-size: 24px; font-weight: 400; margin-bottom: 8px; }
+        .page-header p { font-size: 14px; color: #757575; }
+        .btn {
+            background: #2f6ea6;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn.secondary {
+            background: #fff;
+            color: #2f6ea6;
+            border: 1px solid #b7c6d7;
+        }
+        .btn.link {
+            background: transparent;
+            color: #2f6ea6;
+            border: 1px solid #b7c6d7;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th, td {
+            border-bottom: 1px solid #e7edf3;
+            padding: 9px 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            color: #4f6070;
+            font-weight: 700;
+            background: #f7f9fc;
+        }
+        code {
+            background: #f3f6f9;
+            border: 1px solid #d8e0ea;
+            border-radius: 3px;
+            padding: 1px 5px;
+        }
+        {% block extra_css %}{% endblock %}
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-title">
+            <span class="dot"></span>
+            Транскрибатор
+        </div>
+        <div class="header-actions">
+            {% if current_user %}
+            <span class="status-pill">user: {{ current_user.login }} ({{ current_user.role }})</span>
+            <a class="btn link" href="/resources">Ресурсы</a>
+            <a class="btn link" href="/logout">Выйти</a>
+            {% endif %}
+            <span class="status-pill">provider: {{ provider if provider else 'n/a' }}</span>
+        </div>
+    </header>
+    <div class="tabs">
+        <a href="/resources" class="tab {% block tab_resources %}{% endblock %}">РЕСУРСЫ</a>
+        <a href="/" class="tab {% block tab_index %}{% endblock %}">НОВАЯ ЗАДАЧА</a>
+        <a href="/jobs" class="tab {% block tab_jobs %}{% endblock %}">ЗАДАЧИ</a>
+        <a href="/prompts" class="tab {% block tab_prompts %}{% endblock %}">ПРОМПТЫ</a>
+        <a href="/glossary" class="tab {% block tab_glossary %}{% endblock %}">ГЛОССАРИЙ</a>
+        <a href="/instructions" class="tab {% block tab_instructions %}{% endblock %}">ИНСТРУКЦИИ</a>
+        {% if is_admin %}
+        <a href="/users" class="tab {% block tab_users %}{% endblock %}">ПОЛЬЗОВАТЕЛИ</a>
+        {% endif %}
+    </div>
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

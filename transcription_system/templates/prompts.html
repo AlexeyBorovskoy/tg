@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}Промпты | Транскрибатор{% endblock %}
+{% block tab_prompts %}active{% endblock %}
+{% block extra_css %}
+.grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+.field label {
+    display: block;
+    font-size: 12px;
+    color: #5a6a79;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+.field input,
+.field select,
+.field textarea {
+    width: 100%;
+    border: 1px solid #cfd8e3;
+    border-radius: 4px;
+    padding: 10px 11px;
+    font-size: 14px;
+    background: #fff;
+}
+.field textarea { min-height: 100px; font-family: inherit; }
+.note { font-size: 12px; color: #617182; margin-top: 8px; }
+.inline-code { white-space: nowrap; }
+@media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+}
+{% endblock %}
+{% block content %}
+<section class="page-header">
+    <h1>Библиотека промтов</h1>
+    <p>Управление LLM промтами для профилей <code>voice</code> и <code>meeting</code>. Для каждого профиля можно назначить default.</p>
+</section>
+
+<section class="content-card">
+    <h3 style="margin-bottom: 10px;">Экспорт / импорт</h3>
+    <div class="grid">
+        <div class="field">
+            <label>Экспорт библиотеки</label>
+            <div style="display:flex; gap:8px; flex-wrap: wrap;">
+                <a class="btn secondary" href="/api/v1/prompts/export">Скачать все</a>
+                <a class="btn secondary" href="/api/v1/prompts/export?active_only=true">Только активные</a>
+            </div>
+        </div>
+        <div class="field">
+            <label for="importMode">Режим импорта</label>
+            <select id="importMode">
+                <option value="merge">merge (добавить/обновить)</option>
+                <option value="replace">replace (полностью заменить)</option>
+            </select>
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+            <label for="importFile">Файл импорта (JSON)</label>
+            <input id="importFile" type="file" accept=".json,application/json" />
+        </div>
+    </div>
+    <div style="margin-top: 10px;">
+        <button class="btn" onclick="importPrompts()">Импортировать</button>
+    </div>
+    <div id="importMsg" class="note"></div>
+    <div class="note">Импорт ожидает JSON c <code>schema_version=1</code>.</div>
+</section>
+
+<section class="content-card">
+    <h3 style="margin-bottom: 10px;">Новый промт</h3>
+    <div class="grid">
+        <div class="field">
+            <label for="name">Название</label>
+            <input id="name" placeholder="например: meeting_strict_v1" />
+        </div>
+        <div class="field">
+            <label for="profile">Профиль</label>
+            <select id="profile">
+                <option value="meeting">meeting</option>
+                <option value="voice">voice</option>
+            </select>
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+            <label for="systemPrompt">System prompt</label>
+            <textarea id="systemPrompt" placeholder="Системные правила для LLM"></textarea>
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+            <label for="userTemplate">User template</label>
+            <textarea id="userTemplate" placeholder="Исправь transcript:\n\n{transcript}"></textarea>
+            <div class="note">Поддерживаются плейсхолдеры: <code>{transcript}</code>, <code>{profile}</code>.</div>
+        </div>
+        <div class="field" style="display:flex; align-items:center; gap: 10px;">
+            <input id="isDefault" type="checkbox" />
+            <label for="isDefault" style="margin:0;">Сделать default для профиля</label>
+        </div>
+        <div class="field" style="display:flex; align-items:center; gap: 10px;">
+            <input id="isActive" type="checkbox" checked />
+            <label for="isActive" style="margin:0;">Активный</label>
+        </div>
+    </div>
+
+    <div style="margin-top: 14px; display:flex; gap:8px;">
+        <button class="btn" onclick="createPrompt()">Создать</button>
+        <button class="btn secondary" onclick="location.reload()">Обновить список</button>
+    </div>
+
+    <div id="promptMsg" class="note"></div>
+</section>
+
+<section class="content-card">
+    <h3 style="margin-bottom: 10px;">Список промтов</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Профиль</th>
+                <th>Флаги</th>
+                <th>System/User</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in prompts %}
+            <tr>
+                <td>{{ p.id }}</td>
+                <td><strong>{{ p.name }}</strong></td>
+                <td>{{ p.profile }}</td>
+                <td>
+                    {% if p.is_default %}<span class="inline-code">default</span>{% endif %}
+                    {% if p.is_active %}<span class="inline-code">active</span>{% else %}<span class="inline-code">inactive</span>{% endif %}
+                </td>
+                <td>
+                    <details>
+                        <summary>Показать</summary>
+                        <div style="margin-top:8px; font-size:12px;"><b>system:</b><br>{{ p.system_prompt }}</div>
+                        <div style="margin-top:8px; font-size:12px;"><b>user:</b><br>{{ p.user_template }}</div>
+                    </details>
+                </td>
+                <td>
+                    <button class="btn secondary" onclick="activatePrompt({{ p.id }})">Default</button>
+                    <button class="btn secondary" onclick="deletePrompt({{ p.id }})">Удалить</button>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not prompts %}
+            <tr><td colspan="6">Промптов нет.</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script>
+async function createPrompt() {
+    const msg = document.getElementById('promptMsg');
+    msg.textContent = '';
+
+    const payload = {
+        name: document.getElementById('name').value.trim(),
+        profile: document.getElementById('profile').value,
+        system_prompt: document.getElementById('systemPrompt').value.trim(),
+        user_template: document.getElementById('userTemplate').value.trim(),
+        is_default: document.getElementById('isDefault').checked,
+        is_active: document.getElementById('isActive').checked,
+    };
+
+    if (!payload.name || !payload.system_prompt || !payload.user_template) {
+        msg.textContent = 'Заполните name, system_prompt и user_template.';
+        return;
+    }
+
+    const r = await fetch('/api/v1/prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+        msg.textContent = j?.error?.message || 'Ошибка создания промта';
+        return;
+    }
+    location.reload();
+}
+
+async function importPrompts() {
+    const msg = document.getElementById('importMsg');
+    msg.textContent = '';
+    const fileInput = document.getElementById('importFile');
+    const mode = document.getElementById('importMode').value;
+    if (!fileInput.files || !fileInput.files[0]) {
+        msg.textContent = 'Выберите JSON файл для импорта.';
+        return;
+    }
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    fd.append('mode', mode);
+    const r = await fetch('/api/v1/prompts/import', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+        msg.textContent = j?.error?.message || 'Ошибка импорта';
+        return;
+    }
+    const d = j.data || {};
+    msg.textContent = `Импорт выполнен: created=${d.created || 0}, updated=${d.updated || 0}, skipped=${d.skipped || 0}`;
+    setTimeout(() => location.reload(), 700);
+}
+
+async function activatePrompt(id) {
+    const r = await fetch(`/api/v1/prompts/${id}/activate`, { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+        alert(j?.error?.message || 'Ошибка активации');
+        return;
+    }
+    location.reload();
+}
+
+async function deletePrompt(id) {
+    const r = await fetch(`/api/v1/prompts/${id}`, { method: 'DELETE' });
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+        alert(j?.error?.message || 'Ошибка удаления');
+        return;
+    }
+    location.reload();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Задачи | Транскрибатор{% endblock %}
+{% block tab_jobs %}active{% endblock %}
+{% block content %}
+<section class="page-header">
+    <h1>Журнал задач</h1>
+    <p>Мониторинг статусов транскрибации и быстрый доступ к артефактам.</p>
+</section>
+
+<section class="content-card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+        <strong>Всего: {{ jobs|length }}</strong>
+        <div style="display:flex; gap:8px;">
+            <a class="btn secondary" href="/">Новая задача</a>
+            <button class="btn" onclick="location.reload()">Обновить</button>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Источник</th>
+                <th>Provider</th>
+                <th>Файл</th>
+                <th>Статус</th>
+                <th>LLM</th>
+                <th>Роли</th>
+                <th>Промт</th>
+                <th>Создано</th>
+                <th>Ошибка</th>
+                <th>Артефакты</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for j in jobs %}
+            <tr>
+                <td><code>{{ j.id[:10] }}</code></td>
+                <td>{{ j.source_kind }}</td>
+                <td>{{ j.provider }}</td>
+                <td>{{ j.input_filename }}</td>
+                <td>{{ j.status }}</td>
+                <td>
+                    {% if j.llm_enabled %}on{% else %}off{% endif %}
+                    {% if j.llm_status %}<br><small>{{ j.llm_status }}</small>{% endif %}
+                    {% if j.llm_model_used %}<br><code>{{ j.llm_model_used }}</code>{% endif %}
+                </td>
+                <td>
+                    {% if j.roles_enabled %}on{% else %}off{% endif %}
+                    {% if j.roles_status %}<br><small>{{ j.roles_status }}</small>{% endif %}
+                    {% if j.speaker_map_source %}<br><small>{{ j.speaker_map_source }}</small>{% endif %}
+                    {% if j.roles_model_used %}<br><code>{{ j.roles_model_used }}</code>{% endif %}
+                </td>
+                <td>{{ j.prompt_name_used or '—' }}</td>
+                <td>{{ j.created_at }}</td>
+                <td style="max-width:300px; color:#a33;">{{ j.error_message or '' }}</td>
+                <td>
+                    {% if j.status == 'done' %}
+                        <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=md">md</a> |
+                        <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=txt">txt</a> |
+                        <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=json">json</a>
+                        {% if j.source_kind == 'meeting' %}
+                         | <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=protocol_md">protocol</a>
+                        {% endif %}
+                        {% if j.provider == 'compare' %}
+                        <br>
+                        <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=compare_md">compare.md</a> |
+                        <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=assemblyai_md">assemblyai.md</a> |
+                        <a href="/api/v1/transcription/jobs/{{ j.id }}/artifacts?format=local_whisper_md">local_whisper.md</a>
+                        {% endif %}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not jobs %}
+            <tr><td colspan="11">Нет записей.</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

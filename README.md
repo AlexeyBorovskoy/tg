@@ -23,6 +23,7 @@ TG Digest System автоматизирует мониторинг Telegram-ча
 8. База данных (кратко)
 9. Подробная схема БД
 10. Безопасность
+11. Подсистема транскрибации
 
 ---
 
@@ -103,6 +104,17 @@ tg_digest_system/tg_digest_system/
 
 В корне репозитория также есть `deploy/`, `scripts/` и `docs/` (часть из них legacy/вспомогательные).
 
+Отдельная подсистема транскрибации находится в `transcription_system/`:
+
+```text
+transcription_system/
+  app/                     FastAPI API + очередь задач (SQLite)
+  templates/               UI (новая задача, jobs, prompts, glossary, setup docs)
+  static/                  shell-стили и навигация
+  requirements.txt         зависимости
+  README.md                отдельное руководство по транскрибации
+```
+
 ---
 
 ## 4. Быстрый старт (Docker)
@@ -175,6 +187,8 @@ docker compose logs -f worker
   доступны оба способа входа: `login/password` и `Войти через Яндекс`.
 - для Яндекс OAuth в `secrets.env` обязательны `YANDEX_OAUTH_CLIENT_ID`,
   `YANDEX_OAUTH_CLIENT_SECRET`, `BASE_URL`.
+- для шага Telethon `Отправить код` в `/setup` добавлена явная индикация канала доставки кода:
+  обычно код приходит в Telegram-приложение (чат `Telegram/777000`), а не по SMS.
 
 ---
 
@@ -250,3 +264,24 @@ docker exec -it tg_digest_worker python /app/scripts/digest_worker.py --once --s
 - Не коммитьте секреты: используйте `docker/secrets.env`.
 - Для web UI используйте авторизацию (OAuth/JWT или внешний auth).
 - Для git push из прода используйте deploy key с минимальными правами.
+
+---
+
+## 11. Подсистема транскрибации
+
+Подсистема `transcription_system` работает независимо от TG Digest-пайплайна и решает задачу
+преобразования аудио в текст для двух сценариев:
+
+- голосовые сообщения;
+- совещания/конференции (с ролями, глоссарием и протоколом).
+
+Ключевые возможности:
+
+- провайдеры ASR: `assemblyai`, `local_whisper`, `compare`, `mock`;
+- LLM-постобработка через OpenAI-compatible API;
+- библиотека промптов (экспорт/импорт);
+- глоссарий замен;
+- формирование артефактов `md/txt/json`, а для meeting — `protocol_md/protocol_json`;
+- local-auth (`login/password`, роли `admin/user`) и страница выбора ресурса `/resources`.
+
+Запуск и переменные описаны в `transcription_system/README.md`.

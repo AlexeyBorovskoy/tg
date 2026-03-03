@@ -223,17 +223,6 @@ def _post_login_redirect(next_path: Optional[str]) -> str:
     return p
 
 
-def _oauth_callback_uri(request: Request) -> str:
-    """
-    Возвращает callback URI для OAuth.
-    Приоритет: BASE_URL из env -> текущий host запроса.
-    """
-    base_url = (os.environ.get("BASE_URL", "") or "").strip().rstrip("/")
-    if not base_url:
-        base_url = str(request.base_url).rstrip("/")
-    return f"{base_url}/auth/yandex/callback"
-
-
 def _hash_password(password: str) -> str:
     iterations = 240000
     salt = os.urandom(16).hex()
@@ -1035,26 +1024,18 @@ async def login_page(request: Request, next_url: Optional[str] = None, error_msg
     next_url = _normalize_next_path(next_url or request.query_params.get("next", "/"))
     err = error_msg or request.query_params.get("error")
     if AUTH_LOCAL_ENABLED:
-        yandex_enabled = bool(AUTH_OWN_ENABLED and YANDEX_CLIENT_ID)
-        base_url = (os.environ.get("BASE_URL", "") or "").strip().rstrip("/")
         return templates.TemplateResponse("login_local.html", {
             "request": request,
             "next_url": next_url,
-            "next_encoded": quote(next_url, safe=""),
             "error_msg": err,
-            "oauth_enabled": bool(AUTH_OWN_ENABLED),
-            "yandex_enabled": yandex_enabled,
-            "yandex_redirect_uri": f"{base_url}/auth/yandex/callback" if base_url else "",
         })
     if AUTH_OWN_ENABLED:
-        yandex_enabled = bool(YANDEX_CLIENT_ID)
         return templates.TemplateResponse("login_oauth.html", {
             "request": request,
             "next_url": next_url,
             "next_encoded": quote(next_url, safe=""),
             "error_msg": err,
-            "yandex_enabled": yandex_enabled,
-            "yandex_redirect_uri": _oauth_callback_uri(request),
+            "yandex_enabled": bool(YANDEX_CLIENT_ID),
         })
     if AUTH_CHECK_ENABLED:
         return templates.TemplateResponse("login_auth.html", {
@@ -1277,9 +1258,10 @@ async def auth_yandex_redirect(request: Request):
     """Редирект на Yandex OAuth."""
     if not AUTH_OWN_ENABLED or not get_yandex_authorize_url:
         raise HTTPException(status_code=404, detail="OAuth не настроен")
+    from auth_own import BASE_URL
     next_path = request.query_params.get("next", "/")
     state = secrets.token_urlsafe(32)
-    redirect_uri = _oauth_callback_uri(request)
+    redirect_uri = f"{BASE_URL}/auth/yandex/callback"
     url = get_yandex_authorize_url(state, redirect_uri)
     response = RedirectResponse(url=url, status_code=302)
     response.set_cookie("oauth_state", state, max_age=600, path="/", httponly=True, samesite="lax")
@@ -1296,7 +1278,8 @@ async def auth_yandex_callback(request: Request, code: Optional[str] = None, sta
     next_path = request.cookies.get("oauth_next", "/")
     if not state_cookie or state != state_cookie or not code:
         return RedirectResponse(url=f"/login?error={quote('Ошибка входа через Yandex', safe='')}", status_code=302)
-    redirect_uri = _oauth_callback_uri(request)
+    from auth_own import BASE_URL
+    redirect_uri = f"{BASE_URL}/auth/yandex/callback"
     result = await exchange_yandex_code(code, redirect_uri)
     if not result:
         return RedirectResponse(url=f"/login?error={quote('Не удалось получить данные от Yandex', safe='')}", status_code=302)
@@ -1306,9 +1289,6 @@ async def auth_yandex_callback(request: Request, code: Optional[str] = None, sta
     audit_log(db, user_id, "login", {"provider": "yandex", "email": email}, request)
     response = RedirectResponse(url=next_path if next_path.startswith("/") else "/", status_code=302)
     response.set_cookie(AUTH_COOKIE_NAME, token, max_age=3600, path="/", httponly=True, samesite="lax")
-    # Если пользователь ранее заходил по local auth, очищаем local-cookie,
-    # чтобы приоритетно использовалась текущая OAuth-сессия.
-    response.delete_cookie(AUTH_LOCAL_COOKIE_NAME, path="/")
     response.delete_cookie("oauth_state", path="/")
     response.delete_cookie("oauth_next", path="/")
     return response
@@ -1755,6 +1735,7 @@ async def send_telethon_code(
         user_id = _resolve_user_id(db, current_user, user_telegram_id=body.user_telegram_id)
         if not user_id:
             raise HTTPException(status_code=400, detail="Не удалось определить пользователя")
+        is_admin = _is_admin_user(current_user)
 
         creds = _load_user_telegram_credentials(db, user_id)
         if not creds:
@@ -1814,6 +1795,20 @@ async def send_telethon_code(
         if not code_hash:
             raise HTTPException(status_code=500, detail="Не удалось получить phone_code_hash от Telegram")
 
+        sent_type_obj = getattr(sent, "type", None)
+        sent_type = type(sent_type_obj).__name__ if sent_type_obj is not None else ""
+        delivery_channel = "telegram_app"
+        delivery_hint = (
+            "Код отправлен в Telegram-приложение (чат Telegram/777000). "
+            "SMS может не приходить — это нормально."
+        )
+        if "Sms" in sent_type:
+            delivery_channel = "sms"
+            delivery_hint = "Код отправлен по SMS на указанный номер."
+        elif "Call" in sent_type:
+            delivery_channel = "call"
+            delivery_hint = "Код будет продиктован звонком Telegram."
+
         _TELETHON_PENDING_AUTH[user_id] = TelethonPendingAuth(
             phone=phone,
             phone_code_hash=code_hash,
@@ -1832,7 +1827,10 @@ async def send_telethon_code(
             "already_authorized": False,
             "phone": phone,
             "ttl_seconds": TELETHON_CODE_TTL_SECONDS,
-            "message": "Код отправлен в Telegram. Введите его в поле подтверждения.",
+            "code_delivery_type": sent_type or None,
+            "code_delivery_channel": delivery_channel,
+            "delivery_hint": delivery_hint,
+            "message": "Код отправлен. Введите его в поле подтверждения.",
         }
     except HTTPException:
         db.rollback()

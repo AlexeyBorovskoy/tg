@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Пользователи | Транскрибатор{% endblock %}
+{% block tab_users %}active{% endblock %}
+{% block content %}
+<section class="page-header">
+    <h1>Пользователи</h1>
+    <p>Административный обзор учетных записей local-auth.</p>
+</section>
+
+<section class="content-card">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Логин</th>
+                <th>Роль</th>
+                <th>Активен</th>
+                <th>Создан</th>
+                <th>Обновлен</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in users %}
+            <tr>
+                <td>{{ u.id }}</td>
+                <td><code>{{ u.login }}</code></td>
+                <td>{{ u.role }}</td>
+                <td>{{ 'yes' if u.is_active else 'no' }}</td>
+                <td>{{ u.created_at }}</td>
+                <td>{{ u.updated_at }}</td>
+            </tr>
+            {% endfor %}
+            {% if not users %}
+            <tr><td colspan="6">Пользователи отсутствуют.</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

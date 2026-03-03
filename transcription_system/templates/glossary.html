@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Глоссарий | Транскрибатор{% endblock %}
+{% block tab_glossary %}active{% endblock %}
+{% block extra_css %}
+.row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+.row input {
+    width: 100%;
+    border: 1px solid #cfd8e3;
+    border-radius: 4px;
+    padding: 10px 11px;
+    font-size: 14px;
+}
+.small {
+    font-size: 12px;
+    color: #5f6f7f;
+}
+{% endblock %}
+{% block content %}
+<section class="page-header">
+    <h1>Глоссарий замены терминов</h1>
+    <p>Правила применяются ко всем новым транскриптам: <code>неверно -> корректно</code>.</p>
+</section>
+
+<section class="content-card">
+    <div class="row">
+        <input id="wrong" placeholder="Что распознается неверно (например: прио)" />
+        <input id="correct" placeholder="Как должно быть (например: PRIO)" />
+        <button class="btn" onclick="addTerm()">Добавить</button>
+    </div>
+    <div id="msg" class="small"></div>
+
+    <table style="margin-top:12px;">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Неверно</th>
+                <th>Корректно</th>
+                <th>Создано</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in terms %}
+            <tr>
+                <td>{{ t.id }}</td>
+                <td><code>{{ t.wrong }}</code></td>
+                <td><strong>{{ t.correct }}</strong></td>
+                <td>{{ t.created_at }}</td>
+                <td><button class="btn secondary" onclick="removeTerm({{ t.id }})">Удалить</button></td>
+            </tr>
+            {% endfor %}
+            {% if not terms %}
+            <tr><td colspan="5">Глоссарий пуст.</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}
+{% block extra_js %}
+<script>
+async function addTerm() {
+    const wrong = document.getElementById('wrong').value.trim();
+    const correct = document.getElementById('correct').value.trim();
+    const msg = document.getElementById('msg');
+    msg.textContent = '';
+    if (!wrong || !correct) {
+        msg.textContent = 'Заполните оба поля.';
+        return;
+    }
+    const r = await fetch('/api/v1/glossary/terms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wrong, correct })
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+        msg.textContent = j?.error?.message || 'Ошибка сохранения';
+        return;
+    }
+    location.reload();
+}
+
+async function removeTerm(id) {
+    const r = await fetch('/api/v1/glossary/terms/' + id, { method: 'DELETE' });
+    const j = await r.json();
+    if (!r.ok || !j.ok) {
+        alert(j?.error?.message || 'Ошибка удаления');
+        return;
+    }
+    location.reload();
+}
+</script>
+{% endblock %}
