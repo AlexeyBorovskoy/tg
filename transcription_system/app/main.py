@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime
@@ -24,17 +25,20 @@ from .formatting import (
 from .llm_postprocess import run_llm_postprocess
 from .protocol_builder import build_meeting_protocol, protocol_markdown
 from .role_assignment import run_role_assignment
+from .shared_auth import PostgresSharedAuth, SharedAuthError
 from .settings import ensure_dirs, settings
 from .transcribe import TranscriptionError, is_supported_audio, transcribe_audio
 
 
 app = FastAPI(title="Transcription System", version="1.0.0")
 store = SqliteStore(settings.sqlite_path)
+shared_auth = PostgresSharedAuth()
+logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 templates.env.globals["provider"] = settings.provider
 SUPPORTED_PROVIDERS = ("assemblyai", "local_whisper", "compare", "mock")
-AUTH_LOCAL_ENABLED = settings.auth_local_enabled
-AUTH_LOCAL_COOKIE_NAME = "session_token"
+AUTH_LOCAL_ENABLED = settings.auth_local_enabled or settings.auth_shared_enabled
+AUTH_LOCAL_COOKIE_NAME = settings.auth_shared_cookie_name
 AUTH_LOCAL_MIN_PASSWORD_LEN = 8
 
 
@@ -116,9 +120,46 @@ def _template_ctx(request: Request, **extra: Any) -> dict[str, Any]:
         "provider": settings.provider,
         "current_user": current_user,
         "is_admin": _is_admin_user(current_user),
+        "auth_shared_enabled": settings.auth_shared_enabled,
+        "auth_shared_login_url": settings.auth_shared_login_url,
+        "auth_shared_register_url": settings.auth_shared_register_url,
     }
     base.update(extra)
     return base
+
+
+def _load_user_from_session(token: str | None) -> dict[str, Any] | None:
+    token_s = (token or "").strip()
+    if not token_s:
+        return None
+    if settings.auth_shared_enabled:
+        shared_user = shared_auth.get_user_by_session(token_s)
+        if shared_user:
+            return shared_user
+    return store.get_user_by_session(token_s)
+
+
+def _authenticate_user(login: str, password: str) -> dict[str, Any] | None:
+    if settings.auth_shared_enabled:
+        user = shared_auth.authenticate_local(login, password)
+        if user:
+            return user
+    return store.authenticate_local(login, password)
+
+
+def _create_user_session(user_id: int) -> str:
+    if settings.auth_shared_enabled:
+        return shared_auth.create_session(user_id, days=settings.auth_session_days)
+    return store.create_session(user_id, days=settings.auth_session_days)
+
+
+def _delete_user_session(token: str | None) -> None:
+    token_s = (token or "").strip()
+    if not token_s:
+        return
+    if settings.auth_shared_enabled:
+        shared_auth.delete_session(token_s)
+    store.delete_session(token_s)
 
 
 @app.middleware("http")
@@ -130,7 +171,7 @@ async def require_auth_middleware(request: Request, call_next):
 
     path = request.url.path.rstrip("/") or "/"
     token = request.cookies.get(AUTH_LOCAL_COOKIE_NAME)
-    user = store.get_user_by_session(token) if token else None
+    user = _load_user_from_session(token)
     request.state.auth_user = user
 
     if _is_public_path(path):
@@ -181,6 +222,8 @@ class PromptPayload(BaseModel):
 def startup() -> None:
     ensure_dirs()
     store.init_db()
+    if settings.auth_shared_enabled and not shared_auth.available:
+        logger.warning("Shared auth requested but unavailable. Install psycopg2 and check PG* env.")
 
 
 @app.get("/login")
@@ -191,11 +234,11 @@ def page_login(request: Request, next_url: str | None = None, error_msg: str | N
     next_path = _normalize_next_path(next_url or request.query_params.get("next"))
     return templates.TemplateResponse(
         "login_local.html",
-        {
-            "request": request,
-            "next_url": next_path,
-            "error_msg": error_msg or request.query_params.get("error"),
-        },
+        _template_ctx(
+            request,
+            next_url=next_path,
+            error_msg=error_msg or request.query_params.get("error"),
+        ),
     )
 
 
@@ -215,14 +258,20 @@ def page_login_submit(
             status_code=302,
         )
 
-    auth_user = store.authenticate_local(login, password)
+    auth_user = _authenticate_user(login, password)
     if not auth_user:
         return RedirectResponse(
             url=f"/login?next={quote(_normalize_next_path(next_path), safe='')}&error={quote('Неверный логин или пароль', safe='')}",
             status_code=302,
         )
 
-    session_token = store.create_session(int(auth_user["id"]), days=settings.auth_session_days)
+    try:
+        session_token = _create_user_session(int(auth_user["id"]))
+    except SharedAuthError:
+        return RedirectResponse(
+            url=f"/login?next={quote(_normalize_next_path(next_path), safe='')}&error={quote('Ошибка общей авторизации. Проверьте подключение к БД', safe='')}",
+            status_code=302,
+        )
     response = RedirectResponse(url=_post_login_redirect(next_path), status_code=302)
     max_age = max(1, int(settings.auth_session_days)) * 24 * 60 * 60
     response.set_cookie(
@@ -241,18 +290,23 @@ def page_login_submit(
 def page_register(request: Request, next_url: str | None = None, error_msg: str | None = None):
     if not AUTH_LOCAL_ENABLED:
         return RedirectResponse(url="/login", status_code=302)
+    if settings.auth_shared_enabled and settings.auth_shared_register_url:
+        return RedirectResponse(
+            url=f"{settings.auth_shared_register_url}?next={quote(_normalize_next_path(next_url), safe='')}",
+            status_code=302,
+        )
     current_user = getattr(request.state, "auth_user", None)
     if current_user:
         return RedirectResponse(url="/resources", status_code=302)
     next_path = _normalize_next_path(next_url or request.query_params.get("next"))
     return templates.TemplateResponse(
         "register_local.html",
-        {
-            "request": request,
-            "next_url": next_path,
-            "error_msg": error_msg or request.query_params.get("error"),
-            "min_password_len": AUTH_LOCAL_MIN_PASSWORD_LEN,
-        },
+        _template_ctx(
+            request,
+            next_url=next_path,
+            error_msg=error_msg or request.query_params.get("error"),
+            min_password_len=AUTH_LOCAL_MIN_PASSWORD_LEN,
+        ),
     )
 
 
@@ -265,6 +319,11 @@ def page_register_submit(
 ):
     if not AUTH_LOCAL_ENABLED:
         return RedirectResponse(url="/login", status_code=302)
+    if settings.auth_shared_enabled and settings.auth_shared_register_url:
+        return RedirectResponse(
+            url=f"{settings.auth_shared_register_url}?next={quote(_normalize_next_path(next_path), safe='')}",
+            status_code=302,
+        )
 
     next_norm = _normalize_next_path(next_path)
     login_norm = _normalize_login(login)
@@ -284,14 +343,23 @@ def page_register_submit(
             status_code=302,
         )
     try:
-        user = store.create_user(login_norm, password, role="user", is_active=True)
-    except ValueError as exc:
+        if settings.auth_shared_enabled:
+            user = shared_auth.create_user(login_norm, password)
+        else:
+            user = store.create_user(login_norm, password, role="user", is_active=True)
+    except (ValueError, SharedAuthError) as exc:
         return RedirectResponse(
             url=f"/register?next={quote(next_norm, safe='')}&error={quote(str(exc), safe='')}",
             status_code=302,
         )
 
-    session_token = store.create_session(int(user["id"]), days=settings.auth_session_days)
+    try:
+        session_token = _create_user_session(int(user["id"]))
+    except SharedAuthError:
+        return RedirectResponse(
+            url=f"/register?next={quote(next_norm, safe='')}&error={quote('Ошибка общей авторизации. Проверьте подключение к БД', safe='')}",
+            status_code=302,
+        )
     response = RedirectResponse(url=_post_login_redirect(next_norm), status_code=302)
     max_age = max(1, int(settings.auth_session_days)) * 24 * 60 * 60
     response.set_cookie(
@@ -310,7 +378,7 @@ def page_register_submit(
 def page_logout(request: Request):
     token = request.cookies.get(AUTH_LOCAL_COOKIE_NAME)
     if token:
-        store.delete_session(token)
+        _delete_user_session(token)
     response = RedirectResponse(url="/login", status_code=302)
     response.delete_cookie(AUTH_LOCAL_COOKIE_NAME, path="/")
     return response
@@ -348,7 +416,7 @@ def page_users(request: Request):
     user = getattr(request.state, "auth_user", None)
     if not _is_admin_user(user):
         raise HTTPException(status_code=403, detail="Admin only")
-    users = store.list_users()
+    users = shared_auth.list_users() if settings.auth_shared_enabled else store.list_users()
     return templates.TemplateResponse("users.html", _template_ctx(request, users=users))
 
 
@@ -357,7 +425,8 @@ def api_admin_users(request: Request):
     user = _require_api_user(request)
     if not _is_admin_user(user):
         return err("Admin only", code="forbidden", status_code=403)
-    return ok({"items": store.list_users()})
+    users = shared_auth.list_users() if settings.auth_shared_enabled else store.list_users()
+    return ok({"items": users})
 
 
 @app.get("/")
@@ -910,6 +979,18 @@ def _build_and_store_protocol_for_job(
     return protocol_json
 
 
+def _cleanup_uploaded_audio(upload_path: Path | None) -> None:
+    if settings.keep_uploaded_audio:
+        return
+    if not upload_path:
+        return
+    try:
+        if upload_path.exists():
+            upload_path.unlink()
+    except Exception as exc:
+        logger.warning("Failed to delete uploaded audio %s: %s", upload_path, exc)
+
+
 def _build_compare_report(
     job_id: str,
     input_filename: str,
@@ -986,6 +1067,7 @@ async def run_transcription_job(job_id: str) -> None:
     if not row:
         return
 
+    upload_path: Path | None = None
     try:
         store.set_job_running(job_id)
         glossary = store.glossary_map()
@@ -1127,6 +1209,8 @@ async def run_transcription_job(job_id: str) -> None:
         store.set_job_error(job_id, str(exc))
     except Exception as exc:
         store.set_job_error(job_id, f"Unexpected error: {exc}")
+    finally:
+        _cleanup_uploaded_audio(upload_path)
 
 
 app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parents[1] / "static")), name="static")

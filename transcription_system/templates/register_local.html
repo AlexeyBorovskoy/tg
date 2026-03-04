@@ -72,6 +72,13 @@
 <body>
     <main class="card">
         <h1>Регистрация</h1>
+        {% if auth_shared_enabled %}
+        <p>Регистрация выполняется в общем контуре авторизации TG Digest.</p>
+        <div class="actions">
+            <a class="btn" href="{{ auth_shared_register_url }}">Перейти к регистрации TG Digest</a>
+            <a class="btn secondary" href="/login?next={{ next_url or '/resources' }}">Назад ко входу</a>
+        </div>
+        {% else %}
         <p>Создайте учетную запись для входа. Минимальная длина пароля: {{ min_password_len }} символов.</p>
         {% if error_msg %}
         <div class="err">{{ error_msg }}</div>
@@ -93,6 +100,7 @@
                 <a class="btn secondary" href="/login?next={{ next_url or '/resources' }}">Назад ко входу</a>
             </div>
         </form>
+        {% endif %}
     </main>
 </body>
 </html>

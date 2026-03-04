@@ -18,8 +18,10 @@
 - Сохранение сегментов стенограммы и статистики примененного глоссария в БД
 - UI в стиле TG Digest: вкладки, карточки, таблицы, боковая оболочка
 - Local-auth как в TG Digest: login/password, cookie-сессия, роли `admin/user`
+- Shared-auth mode: единый вход с TG Digest через общую таблицу `user_sessions` в PostgreSQL
 - После входа открывается `/resources` (страница выбора ресурса)
 - Изоляция задач по пользователю: обычный пользователь видит только свои jobs
+- По умолчанию исходное аудио удаляется после обработки (`KEEP_UPLOADED_AUDIO=0`)
 
 ## Запуск локально
 
@@ -69,11 +71,18 @@ uvicorn app.main:app --host 127.0.0.1 --port 8081 --reload
 ## Примечания
 - Для локальной проверки без внешнего API выставлен `TRANSCRIPTION_PROVIDER=mock`.
 - По умолчанию создается admin из env:
-  - `ADMIN_LOGIN` (default `admin`)
-  - `ADMIN_PASSWORD` (default `change_me`)
+  - `ADMIN_LOGIN` (default `Alex`)
+  - `ADMIN_PASSWORD` (default `change_me_strong_password`)
   - `AUTH_LOCAL_ENABLED=1`
   - `AUTH_SESSION_DAYS=14`
   - `RESOURCE_TG_DIGEST_URL` — ссылка на TG Digest в окне выбора ресурса.
+- Для единой авторизации с TG Digest:
+  - `AUTH_SHARED_ENABLED=1`
+  - `AUTH_SHARED_COOKIE_NAME=session_token`
+  - `PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD` — подключение к БД TG Digest
+  - `AUTH_SHARED_ADMIN_LOGIN=Alex`
+  - при включенном shared-режиме вход/сессия общие для двух сервисов.
+- Регистрация в shared-режиме должна выполняться в контуре TG Digest (`AUTH_SHARED_REGISTER_URL`).
 - Для боевой транскрибации переключить на `TRANSCRIPTION_PROVIDER=assemblyai`, задать `ASSEMBLYAI_API_KEY` и при необходимости `ASSEMBLYAI_SPEECH_MODELS` (по умолчанию `universal-2`).
 - Для локального ASR через Whisper: `TRANSCRIPTION_PROVIDER=local_whisper` и установить `faster-whisper` отдельно:
   `pip install faster-whisper`
@@ -83,6 +92,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8081 --reload
 - Совместимость сохранена: можно использовать старые имена `OPENAI_API_BASE` и `LLM_MAX_OUTPUT_TOKENS`; также поддерживается `OPENAI_MAX_TOKENS`.
 - Приоритет загрузки настроек для LLM/ASR: env процесса -> `tg_digest_system/docker/secrets.env` -> `tg_digest_system/docker/.env` -> `transcription_system/.env`.
 - Если `OPENAI_API_KEY` не задан, авто-назначение ролей продолжит работу в эвристическом режиме (`Спикер 1`, `Спикер 2`...).
+- Политика хранения аудио: исходный файл используется только на этапе ASR, затем удаляется; в БД/артефактах остается только текст и метаданные.
 
 ## Логика выбора LLM модели (MVP)
 - Сервис использует `OPENAI_MODEL_CANDIDATES` как приоритетную цепочку моделей (слева направо).

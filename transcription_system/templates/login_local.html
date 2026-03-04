@@ -72,7 +72,11 @@
 <body>
     <main class="card">
         <h1>Вход</h1>
+        {% if auth_shared_enabled %}
+        <p>Единая авторизация с Telegram Digest через общую БД сессий. После входа откроется страница выбора ресурса.</p>
+        {% else %}
         <p>Единая авторизация сервиса. После входа откроется страница выбора ресурса.</p>
+        {% endif %}
         {% if error_msg %}
         <div class="err">{{ error_msg }}</div>
         {% endif %}
@@ -86,7 +90,11 @@
 
             <div class="actions">
                 <button class="btn" type="submit">Войти</button>
+                {% if auth_shared_enabled %}
+                <a class="btn secondary" href="{{ auth_shared_login_url }}">Вход через TG Digest</a>
+                {% else %}
                 <a class="btn secondary" href="/register?next={{ next_url or '/resources' }}">Регистрация</a>
+                {% endif %}
             </div>
         </form>
     </main>

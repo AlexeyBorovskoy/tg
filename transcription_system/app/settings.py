@@ -121,9 +121,24 @@ class Settings:
     # Local auth
     auth_local_enabled: bool = _as_bool(_env_get_shared_first("AUTH_LOCAL_ENABLED", default="1"), True)
     auth_session_days: int = _as_int(_env_get_shared_first("AUTH_SESSION_DAYS", default="14"), 14)
-    admin_login: str = _env_get_shared_first("ADMIN_LOGIN", default="admin")
-    admin_password: str = _env_get_shared_first("ADMIN_PASSWORD", default="change_me")
+    admin_login: str = _env_get_shared_first("ADMIN_LOGIN", default="Alex")
+    admin_password: str = _env_get_shared_first("ADMIN_PASSWORD", default="change_me_strong_password")
     resource_tg_digest_url: str = _env_get_shared_first("RESOURCE_TG_DIGEST_URL", default="http://localhost:8010/setup")
+
+    # Shared auth with TG Digest PostgreSQL
+    auth_shared_enabled: bool = _as_bool(_env_get_shared_first("AUTH_SHARED_ENABLED", default="0"), False)
+    auth_shared_cookie_name: str = _env_get_shared_first("AUTH_SHARED_COOKIE_NAME", default="session_token")
+    auth_shared_register_url: str = _env_get_shared_first("AUTH_SHARED_REGISTER_URL", default="http://localhost:8010/register")
+    auth_shared_login_url: str = _env_get_shared_first("AUTH_SHARED_LOGIN_URL", default="http://localhost:8010/login")
+    auth_shared_admin_login: str = _env_get_shared_first("AUTH_SHARED_ADMIN_LOGIN", "ADMIN_LOGIN", default="Alex")
+    auth_shared_pg_host: str = _env_get_shared_first("PGHOST", default="localhost")
+    auth_shared_pg_port: int = _as_int(_env_get_shared_first("PGPORT", default="5432"), 5432)
+    auth_shared_pg_database: str = _env_get_shared_first("PGDATABASE", default="tg_digest")
+    auth_shared_pg_user: str = _env_get_shared_first("PGUSER", default="tg_digest")
+    auth_shared_pg_password: str = _env_get_shared_first("PGPASSWORD", default="")
+
+    # Audio retention: source uploads should be temporary by default
+    keep_uploaded_audio: bool = _as_bool(_env_get_shared_first("KEEP_UPLOADED_AUDIO", default="0"), False)
 
 
 settings = Settings()
